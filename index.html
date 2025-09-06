@@ -1,4 +1,11 @@
-<!doctype html>
+let board=[]; let used='scoreboard';
+    try{ board=await cfbd(`/scoreboard?year=${year}&week=${week}&seasonType=${st}&classification=fbs`); }
+    catch(e){ board=[]; }
+
+    if(!board || !board.length){
+      try{ board=await cfbd(`/games?year=${year}&week=${week}&seasonType=${st}&division=fbs`); used='games'; }
+      catch(e){ board=[]; }
+    }<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -84,6 +91,13 @@
 
     .hint{font-size:12px;color:var(--muted)}
     .ok{color:#9cffb0}
+    /* Picker modal */
+    .picker{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:200}
+    .pickbox{width:min(820px,95vw);max-height:80vh;overflow:auto;background:#0f0f0f;border:1px solid #222;border-radius:16px;padding:14px}
+    .pickbox h3{margin:0 0 8px}
+    .pickrow{display:flex;gap:8px;align-items:center;justify-content:space-between;border-bottom:1px solid #1a1a1a;padding:6px 0}
+    .pickrow small{color:#bdbdbd}
+    .pickbar{display:flex;gap:8px;align-items:center;margin-bottom:8px}
   </style>
 </head>
 <body>
@@ -106,6 +120,8 @@
       <button class="btn" id="stop">Stop</button>
       <label class="pill"><input type="checkbox" id="logosToggle" checked> Show logos</label>
       <label class="pill"><input type="checkbox" id="safeMode" checked> Free‑tier safe</label>
+      <label class="pill"><input type="checkbox" id="top25Only" checked> Top‑25 only</label>
+      <button class="btn" id="pickBtn">Pick Games</button>
     </div>
   </div>
 
@@ -119,10 +135,26 @@
     <div id="shout" class="shout" style="display:none"></div>
   </div>
 
+  <!-- Game picker modal -->
+  <div id="picker" class="picker">
+    <div class="pickbox">
+      <div class="pickbar">
+        <h3 style="margin-right:auto">Select up to 10 games</h3>
+        <button class="btn" id="pickClose">Close</button>
+        <button class="btn" id="pickClear">Clear</button>
+        <button class="btn" id="pickTop25">Top‑25</button>
+        <button class="btn" id="pickApply">Apply</button>
+      </div>
+      <div id="pickList"></div>
+      <div class="hint" style="margin-top:6px">Tip: leave empty to auto Top‑10. Your selection overrides the auto list.</div>
+    </div>
+  </div>
+  </div>
+
   <script>
   // ===== UTIL =====
   const el = id => document.getElementById(id);
-  const state = { games: [], logos: new Map(), tipText:'', tipUrl:'', shout:[], sponsors:[], featured:new Set() };
+  const state = { games: [], allGames: [], logos: new Map(), tipText:'', tipUrl:'', shout:[], sponsors:[], featured:new Set(), selected:new Set(), rankMap:new Map() };
   let pollTimer=null, playsTimer=null, lastUpdate=0;
 
   function saveLocal(){ localStorage.setItem('cfbdKey', el('keyIn').value.trim()); localStorage.setItem('tipText', state.tipText||''); localStorage.setItem('tipUrl', state.tipUrl||''); }
@@ -209,12 +241,22 @@
     if(!board || !board.length){ setStatus(`No games found for year ${year} week ${week} (${st}).`); state.games=[]; render(); return; }
 
     // 3) Filter to Top‑25 and pick Top‑10
-    const rankMap=new Map(top25.map((t,i)=>[t,i+1]));
+    state.rankMap=new Map(top25.map((t,i)=>[t,i+1])); const rankMap = state.rankMap;
     const games=(board||[]).map(normalizeGame);
-    const withRank = games.map(g=>({ g, rank: Math.min(rankMap.get(g.home.name)||99, rankMap.get(g.away.name)||99) }));
-    const top10 = (withRank.length? withRank.sort((a,b)=>a.rank-b.rank).slice(0,10): games.slice(0,10)).map(x=>x.g||x);
+    state.allGames = games;
 
-    state.games = top10;
+    let chosen = [];
+    if(state.selected.size){
+      const want = new Set(Array.from(state.selected));
+      chosen = games.filter(g=>want.has(g.id)).slice(0,10);
+    } else if (document.getElementById('top25Only').checked && state.rankMap.size){
+      const withRank = games.map(g=>({ g, rank: Math.min((rankMap.get(g.home.name)||99),(rankMap.get(g.away.name)||99)) }));
+      chosen = withRank.sort((a,b)=>a.rank-b.rank).slice(0,10).map(x=>x.g);
+    } else {
+      chosen = games.slice(0,10);
+    }
+
+    state.games = chosen;
     setStatus(used==='scoreboard'? 'ready':'ready (fallback)');
     render();
   }
@@ -340,7 +382,31 @@
   el('sponsorBtn').onclick=()=>{ state.sponsors = (el('sponsorIn').value||'').split(';').map(s=>s.trim()).filter(Boolean); render(); };
   el('logosToggle').onchange=()=>render();
 
+  // Picker UI
+  el('pickBtn').onclick=()=>{ buildPicker(); el('picker').style.display='flex'; };
+  el('pickClose').onclick=()=>{ el('picker').style.display='none'; };
+  el('pickClear').onclick=()=>{ state.selected.clear(); buildPicker(); };
+  el('pickTop25').onclick=()=>{ // select games with any ranked team
+    state.selected.clear();
+    const rm = state.rankMap || new Map();
+    state.allGames.forEach(g=>{ if(rm.has(g.home.name)||rm.has(g.away.name)) state.selected.add(g.id); });
+    buildPicker();
+  };
+  el('pickApply').onclick=()=>{ el('picker').style.display='none'; state.games = state.allGames.filter(g=>state.selected.has(g.id)).slice(0,10); render(); };
+
+  function buildPicker(){
+    const list=el('pickList');
+    list.innerHTML = state.allGames.map(g=>{
+      const checked = state.selected.has(g.id)? 'checked':'';
+      return `<label class="pickrow"><div><input type="checkbox" data-pick="${g.id}" ${checked}> <strong>${g.home.name}</strong> vs <strong>${g.away.name}</strong></div><small>${g.status||''}</small></label>`;
+    }).join('');
+    list.querySelectorAll('input[data-pick]').forEach(cb=>{
+      cb.onchange=()=>{ const id=cb.getAttribute('data-pick'); if(cb.checked) state.selected.add(id); else state.selected.delete(id); };
+    });
+  }
+
   // Init
+  loadLocal();
   loadLocal();
   loadLocal();
   </script>
