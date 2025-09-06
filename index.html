@@ -1,91 +1,77 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Top-10 College Football — Live Board (CFBD)</title>
-  <!--
-    SINGLE PAGE (control + display)
-    - Paste this as index.html in your GitHub Pages repo.
-    - Enter your CFBD API key in the control bar at runtime.
-    - Your key is stored only in your browser (localStorage). Do NOT hard-code it.
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Top-25 College Football — Live Board (CFBD)</title>
+<style>
+:root{--bg:#0b0b0b;--ink:#fff;--muted:#bfbfbf;--glass:rgba(255,255,255,.06);--line:#1d1d1d;--accent:#8a2be2;--good:#22c55e;--warn:#f59e0b;--bad:#ef4444;--chip:#141414}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Arial}
+a{color:var(--accent);text-decoration:none}
+.wrap{max-width:1280px;margin:0 auto;padding:12px}
 
-    Features
-    - Pulls Top-25 (AP), filters FBS scoreboard; falls back to FBS games list if needed.
-    - Auto-select Top-10, or click “Pick Games” to choose any 10.
-    - Logos (from /teams/fbs), tip banner, sponsors, shout-outs.
-    - Mini field with ball spot; “Boost” a couple of games to poll /live/plays for last play + animation.
-  -->
-  <style>
-    :root{
-      --bg:#0b0b0b; --ink:#fff; --muted:#bfbfbf; --glass:rgba(255,255,255,.06); --line:#1d1d1d;
-      --accent:#8a2be2; --good:#22c55e; --warn:#f59e0b; --bad:#ef4444; --chip:#141414;
-    }
-    *{box-sizing:border-box}
-    html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Arial}
-    a{color:var(--accent);text-decoration:none}
+/* Control bar */
+.ctrl{position:sticky;top:0;z-index:100;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:10px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ctrl input,.ctrl select{background:#171717;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:6px 8px}
+.btn{background:#1f1f1f;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
+.btn:hover{background:#272727}
+.pill{padding:4px 8px;border-radius:999px;border:1px solid var(--line);background:var(--chip);font-size:12px}
 
-    .wrap{max-width:1280px;margin:0 auto;padding:12px}
+/* Grid */
+.grid{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px}
+@media(min-width:820px){.grid{grid-template-columns:1fr 1fr}} /* iPad+ */
+@media(min-width:1200px){.grid{grid-template-columns:1fr 1fr}} /* desktop 2 cols */
 
-    /* Control bar */
-    .ctrl{position:sticky;top:0;z-index:100;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);
-          border-bottom:1px solid var(--line); padding:10px}
-    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    .ctrl input,.ctrl select{background:#171717;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:6px 8px}
-    .btn{background:#1f1f1f;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
-    .btn:hover{background:#272727}
-    .pill{padding:4px 8px;border-radius:999px;border:1px solid var(--line);background:var(--chip);font-size:12px}
+.card{background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:10px}
+.head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}
+.teams{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center}
+.team{display:flex;gap:8px;align-items:center}
+.name{font-weight:800;font-size:14px}
+.logo{width:22px;height:22px;border-radius:6px;background:#222;display:inline-flex;align-items:center;justify-content:center;overflow:hidden}
+.logo img{width:100%;height:100%;object-fit:contain}
+.score{font-weight:900;font-size:22px}
+.vs{font-weight:700;color:#cfcfcf}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;font-weight:600;color:var(--muted)}
+.ticker{margin-top:8px;background:#0f0f0f;border:1px dashed #2a2a2a;border-radius:10px;padding:8px;font-size:13px}
 
-    /* Grid */
-    .grid{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px}
-    @media(min-width:820px){.grid{grid-template-columns:1fr 1fr}} /* iPad and up */
-    @media(min-width:1200px){.grid{grid-template-columns:1fr 1fr}} /* desktop still 2 columns */
+/* Mini field */
+.field{margin-top:8px;position:relative;height:70px;background:#0a7a28;border:3px solid #ddd;border-radius:12px;overflow:hidden}
+.yd{position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.35)}
+.num{position:absolute;bottom:4px;color:#fff;font-weight:800;font-size:10px;opacity:.9;transform:translateX(-50%)}
+.ball{position:absolute;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;background:#c66;border:2px solid #5a2d14;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.45);transition:left .45s ease}
+.trail{position:absolute;top:50%;height:4px;background:linear-gradient(90deg,rgba(255,255,255,.0),rgba(255,255,255,.9),rgba(255,255,255,.0));transform:translateY(-50%);opacity:.0;transition:opacity .35s ease}
 
-    .card{background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:10px}
-    .head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}
-    .teams{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center}
-    .team{display:flex;gap:8px;align-items:center}
-    .name{font-weight:800;font-size:14px}
-    .logo{width:22px;height:22px;border-radius:6px;background:#222;display:inline-flex;align-items:center;justify-content:center;overflow:hidden}
-    .logo img{width:100%;height:100%;object-fit:contain}
-    .score{font-weight:900;font-size:22px}
-    .vs{font-weight:700;color:#cfcfcf}
-    .meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;font-weight:600;color:var(--muted)}
-    .ticker{margin-top:8px;background:#0f0f0f;border:1px dashed #2a2a2a;border-radius:10px;padding:8px;font-size:13px}
+/* Tip + Sponsors + Shoutouts */
+.bar{display:flex;gap:10px;align-items:center;margin:8px 0 12px}
+.grow{flex:1}
+.sponsors{display:flex;gap:8px;flex-wrap:wrap}
+.slot{background:#101010;border:1px dashed #2a2a2a;border-radius:10px;padding:6px 10px;font-size:12px}
+.shout{margin-top:6px;background:#0f0f0f;border:1px solid #2a2a2a;border-radius:10px;padding:8px;font-weight:700;white-space:nowrap;overflow:hidden}
+.shout span{display:inline-block;padding-right:24px}
+.hint{font-size:12px;color:var(--muted)}
+.ok{color:#9cffb0}
 
-    /* Mini field */
-    .field{margin-top:8px;position:relative;height:70px;background:#0a7a28;border:3px solid #ddd;border-radius:12px;overflow:hidden}
-    .yd{position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.35)}
-    .num{position:absolute;bottom:4px;color:#fff;font-weight:800;font-size:10px;opacity:.9;transform:translateX(-50%)}
-    .ball{position:absolute;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;background:#c66;border:2px solid #5a2d14;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.45);transition:left .45s ease}
-    .trail{position:absolute;top:50%;height:4px;background:linear-gradient(90deg,rgba(255,255,255,.0),rgba(255,255,255,.9),rgba(255,255,255,.0));transform:translateY(-50%);opacity:.0;transition:opacity .35s ease}
-
-    /* Tip + Sponsors + Shoutouts */
-    .bar{display:flex;gap:10px;align-items:center;margin:8px 0 12px}
-    .grow{flex:1}
-    .sponsors{display:flex;gap:8px;flex-wrap:wrap}
-    .slot{background:#101010;border:1px dashed #2a2a2a;border-radius:10px;padding:6px 10px;font-size:12px}
-    .shout{margin-top:6px;background:#0f0f0f;border:1px solid #2a2a2a;border-radius:10px;padding:8px;font-weight:700;white-space:nowrap;overflow:hidden}
-    .shout span{display:inline-block;padding-right:24px}
-
-    .hint{font-size:12px;color:var(--muted)}
-    .ok{color:#9cffb0}
-
-    /* Picker modal */
-    .picker{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:200}
-    .pickbox{width:min(820px,95vw);max-height:80vh;overflow:auto;background:#0f0f0f;border:1px solid #222;border-radius:16px;padding:14px}
-    .pickbox h3{margin:0 0 8px}
-    .pickrow{display:flex;gap:8px;align-items:center;justify-content:space-between;border-bottom:1px solid #1a1a1a;padding:6px 0}
-    .pickrow small{color:#bdbdbd}
-    .pickbar{display:flex;gap:8px;align-items:center;margin-bottom:8px}
-  </style>
+/* Picker modal */
+.picker{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:200}
+.pickbox{width:min(900px,95vw);max-height:82vh;overflow:auto;background:#0f0f0f;border:1px solid #222;border-radius:16px;padding:14px}
+.pickbox h3{margin:0 0 8px}
+.pickcols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.picklist{border:1px solid #222;border-radius:12px;padding:8px}
+.pickrow{display:flex;gap:8px;align-items:center;justify-content:space-between;border-bottom:1px solid #1a1a1a;padding:6px 0}
+.pickrow:last-child{border-bottom:none}
+.orderrow{display:flex;gap:8px;align-items:center;justify-content:space-between;border-bottom:1px dashed #1a1a1a;padding:6px 0}
+.orderrow:last-child{border-bottom:none}
+.small{font-size:12px;color:#bbb}
+</style>
 </head>
 <body>
   <div class="ctrl">
     <div class="row">
-      <strong>Top-10 CFB Live Board</strong>
+      <strong>Top-25 CFB Live Board</strong>
       <span class="pill" id="status">idle</span>
-      <span class="hint">Enter your CFBD key, pick season/week, press Start.</span>
+      <span class="hint">Paste CFBD key → pick season/week → Start. Default shows Top-25 by rank.</span>
     </div>
     <div class="row" style="margin-top:6px">
       <label>CFBD Key <input id="keyIn" placeholder="paste your key" size="38"></label>
@@ -100,17 +86,7 @@
       <button class="btn" id="stop">Stop</button>
       <label class="pill"><input type="checkbox" id="logosToggle" checked> Show logos</label>
       <label class="pill"><input type="checkbox" id="safeMode" checked> Free-tier safe</label>
-      <label class="pill"><input type="checkbox" id="top25Only" checked> Top-25 only</label>
-      <button class="btn" id="pickBtn">Pick Games</button>
-    </div>
-    <div class="row" style="margin-top:6px">
-      <label>Tip text <input id="tipText" placeholder="BuyMeACoffee: tigerfan" size="26"></label>
-      <label>Tip URL <input id="tipUrl" placeholder="https://your-tip-link" size="30"></label>
-      <button class="btn" id="saveTip">Set</button>
-      <label>Shout-outs (semicolon ; separated) <input id="shoutIn" size="36" placeholder="Thanks Sam ($10)!; New Member: Alex"></label>
-      <button class="btn" id="shoutBtn">Update</button>
-      <label>Sponsors (semicolon ; separated) <input id="sponsorIn" size="36" placeholder="Use code TIGER for 10% at Example.com"></label>
-      <button class="btn" id="sponsorBtn">Set</button>
+      <button class="btn" id="pickBtn">Pick & Order</button>
     </div>
   </div>
 
@@ -124,265 +100,293 @@
     <div id="shout" class="shout" style="display:none"></div>
   </div>
 
-  <!-- Game picker modal -->
+  <!-- Picker modal -->
   <div id="picker" class="picker">
     <div class="pickbox">
-      <div class="pickbar">
-        <h3 style="margin-right:auto">Select up to 10 games</h3>
+      <div class="row" style="margin-bottom:8px">
+        <h3 style="margin-right:auto">Pick up to 10 games & set the order</h3>
         <button class="btn" id="pickClose">Close</button>
         <button class="btn" id="pickClear">Clear</button>
-        <button class="btn" id="pickTop25">Top-25</button>
+        <button class="btn" id="pickTop25">Auto Top-25</button>
         <button class="btn" id="pickApply">Apply</button>
       </div>
-      <div id="pickList"></div>
-      <div class="hint" style="margin-top:6px">Tip: leave empty to auto Top-10. Your selection overrides the auto list.</div>
+      <div class="pickcols">
+        <div class="picklist">
+          <div class="small">All FBS games this week</div>
+          <div id="pickAll"></div>
+        </div>
+        <div class="picklist">
+          <div class="small">Your Top-10 (drag buttons to reorder)</div>
+          <div id="pickChosen"></div>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:6px">Tip: If you leave this empty, the board auto-shows AP Top-25 games sorted 1→25.</div>
     </div>
   </div>
 
-  <script>
-  // ===== UTIL =====
-  const el = id => document.getElementById(id);
-  const state = { games: [], allGames: [], logos: new Map(), tipText:'', tipUrl:'', shout:[], sponsors:[], featured:new Set(), selected:new Set(), rankMap:new Map() };
-  let pollTimer=null, playsTimer=null;
+<script>
+const el = id => document.getElementById(id);
+const state = {
+  games: [],          // currently displayed (10)
+  allGames: [],       // all FBS games from scoreboard/fallback
+  rankMap: new Map(), // team -> rank
+  logos: new Map(),
+  selectedOrder: [],  // custom ordered IDs (max 10)
+  featured: new Set(),
+  tipText:'', tipUrl:'', shout:[], sponsors:[]
+};
+let pollTimer=null, playsTimer=null;
 
-  function saveLocal(){ localStorage.setItem('cfbdKey', el('keyIn').value.trim()); localStorage.setItem('tipText', state.tipText||''); localStorage.setItem('tipUrl', state.tipUrl||''); }
-  function loadLocal(){ const k=localStorage.getItem('cfbdKey'); if(k) el('keyIn').value=k; const tt=localStorage.getItem('tipText'); const tu=localStorage.getItem('tipUrl'); if(tt){state.tipText=tt; el('tipText').value=tt;} if(tu){state.tipUrl=tu; el('tipUrl').value=tu;} }
+function setStatus(t, ok){ const s=el('status'); s.textContent=t; s.className='pill' + (ok?' ok':''); }
+function saveLocal(){ localStorage.setItem('cfbdKey', el('keyIn').value.trim()); }
+function loadLocal(){ const k=localStorage.getItem('cfbdKey'); if(k) el('keyIn').value=k; }
 
-  function setStatus(t, ok){ const s=el('status'); s.textContent=t; s.className='pill' + (ok?' ok':''); }
+async function cfbd(path){
+  const key = el('keyIn').value.trim(); if(!key) throw new Error('Missing key');
+  const res = await fetch(`https://api.collegefootballdata.com${path}`, { headers:{ Authorization:`Bearer ${key}` }});
+  if(!res.ok){ let txt=''; try{txt=await res.text();}catch(_){}
+    throw new Error(`CFBD ${res.status} ${res.statusText}${txt? ' — '+txt.slice(0,90):''}`); }
+  return res.json();
+}
 
-  async function cfbd(path){
-    const key = el('keyIn').value.trim(); if(!key) throw new Error('Missing key');
-    const res = await fetch(`https://api.collegefootballdata.com${path}`, { headers:{ Authorization:`Bearer ${key}` }});
-    if(!res.ok){
-      let txt=''; try{ txt=await res.text(); }catch(_){}
-      throw new Error(`CFBD ${res.status} ${res.statusText}${txt? ' — '+txt.slice(0,80):''}`);
-    }
-    return res.json();
-  }
+async function resolveCurrentWeek(){
+  const year=+el('yearIn').value; const st=el('seasonType').value;
+  const cal = await cfbd(`/calendar?year=${year}`);
+  const today = new Date().toISOString().slice(0,10);
+  const slot = cal.find(w => w.seasonType===st && today>=w.startDate && today<=w.endDate);
+  if(slot) el('weekIn').value=slot.week;
+}
 
-  async function resolveCurrentWeek(){
-    const year=+el('yearIn').value; const st=el('seasonType').value;
-    const cal = await cfbd(`/calendar?year=${year}`);
-    const today = new Date().toISOString().slice(0,10);
-    const slot = cal.find(w => w.seasonType===st && today>=w.startDate && today<=w.endDate);
-    if(slot){ el('weekIn').value = slot.week; }
-  }
+async function loadLogos(){
+  if(state.logos.size || !el('logosToggle').checked) return;
+  try{
+    const teams = await cfbd(`/teams/fbs?year=${el('yearIn').value}`);
+    teams.forEach(t=>{ const url=(t.logos&&t.logos[0])||t.logo||''; if(url) state.logos.set(t.school,url); });
+  }catch(_) {}
+}
+function logoFor(name){ const url=state.logos.get(name); return url? `<span class="logo"><img src="${url}" alt="${name}"></span>` : `<span class="logo">${name.split(' ').map(s=>s[0]).join('').slice(0,3)}</span>`; }
 
-  // ===== LOGOS =====
-  async function loadLogos(){
-    if(!el('logosToggle').checked) return;
-    if(state.logos.size) return; // cache
-    try{
-      const teams = await cfbd(`/teams/fbs?year=${el('yearIn').value}`);
-      teams.forEach(t=>{ if(t && t.school){ const url = (t.logos && t.logos[0]) || t.logo || ''; if(url) state.logos.set(t.school, url); } });
-    }catch(e){ /* ignore */ }
-  }
-  function logoFor(name){ const url = state.logos.get(name); return url ? `<span class="logo"><img src="${url}" alt="${name}"></span>` : `<span class="logo">${name.split(' ').map(s=>s[0]).join('').slice(0,3)}</span>`; }
+function get(o,...k){ for(const x of k){ if(o && o[x]!=null) return o[x]; } }
+function num(v){ const n=Number(v); return isFinite(n)?n:undefined; }
+function fmtKick(g){ const dt = get(g,'startDate','start_date','start'); if(!dt) return ''; return `Kick: ${dt.toString().slice(0,16)}`; }
 
-  // ===== FETCH & NORMALIZE =====
-  function get(o,...keys){ for(const k of keys){ if(o && o[k]!=null) return o[k]; } return undefined; }
-  function num(v){ const n=Number(v); return isFinite(n)?n:undefined; }
-
-  function normalizeGame(g){
-    const homeName = get(g,'homeTeam','home_team','home');
-    const awayName = get(g,'awayTeam','away_team','away');
-    const id = get(g,'id','gameId','game_id') || `${homeName}-${awayName}`;
-    return {
-      id,
-      home:{ name:homeName, score: num(get(g,'homeScore','home_points','home_points_total'))||0 },
-      away:{ name:awayName, score: num(get(g,'awayScore','away_points','away_points_total'))||0 },
-      status:(get(g,'status')||get(g,'gameStatus')||'').toString(),
-      quarter:num(get(g,'period','quarter','current_period'))||1,
-      clock:get(g,'clock','game_clock','display_clock')||'',
-      down:num(get(g,'down','current_down'))||undefined,
-      distance:num(get(g,'distance','current_distance'))||undefined,
-      yardLine:get(g,'yardLine','yard_line','field_position')||'',
-      possession:get(g,'possession','possessionTeam','pos_team')||'',
-      lastPlay:get(g,'lastPlay','last_play')||'',
-      prevYL:undefined
-    };
-  }
-
-  async function loadTop10(){
-    setStatus('loading…');
-    await loadLogos();
-    const year=+el('yearIn').value; const week=+el('weekIn').value; const st=el('seasonType').value; const poll=el('poll').value;
-
-    // 1) Rankings → Top-25 names
-    let top25=[]; try{
-      const ranks=await cfbd(`/rankings?year=${year}&week=${week}&seasonType=${st}&poll=${encodeURIComponent(poll)}`);
-      const pollObj=(ranks||[])[0]?.polls?.find?.(p=>p.poll===poll) || (ranks||[])[0];
-      const entries=pollObj?.ranks || pollObj?.entries || [];
-      top25=entries.map(r=> (r.school||r.team||r.name));
-    }catch(e){ /* continue even if rankings fail */ }
-    state.rankMap=new Map(top25.map((t,i)=>[t,i+1])); const rankMap = state.rankMap;
-
-    // 2) Scoreboard for week (FBS), fallback to FBS games list
-    let board=[]; let used='scoreboard';
-    try{ board=await cfbd(`/scoreboard?year=${year}&week=${week}&seasonType=${st}&classification=fbs`); }
-    catch(e){ board=[]; }
-    if(!board || !board.length){
-      try{ board=await cfbd(`/games?year=${year}&week=${week}&seasonType=${st}&division=fbs`); used='games'; }
-      catch(e){ board=[]; }
-    }
-    if(!board || !board.length){ setStatus(`No games found for year ${year} week ${week} (${st}).`); state.games=[]; render(); return; }
-
-    // 3) Normalize + choose Top-10 (or selection)
-    const games=(board||[]).map(normalizeGame);
-    state.allGames = games;
-
-    let chosen = [];
-    if(state.selected.size){
-      const want = new Set(Array.from(state.selected));
-      chosen = games.filter(g=>want.has(g.id)).slice(0,10);
-    } else if (document.getElementById('top25Only').checked && state.rankMap.size){
-      const withRank = games.map(g=>({ g, rank: Math.min((rankMap.get(g.home.name)||99),(rankMap.get(g.away.name)||99)) }));
-      chosen = withRank.sort((a,b)=>a.rank-b.rank).slice(0,10).map(x=>x.g);
-    } else {
-      chosen = games.slice(0,10);
-    }
-
-    state.games = chosen;
-    setStatus(used==='scoreboard'? 'ready':'ready (fallback)', true);
-    render();
-  }
-
-  // ===== PLAYS ENRICHMENT (Boost) =====
-  async function fetchPlays(gameId){
-    try{
-      const plays = await cfbd(`/live/plays?gameId=${gameId}`);
-      if(!plays || !plays.length) return;
-      const last = plays[plays.length-1];
-      const g = state.games.find(x=>x.id===gameId); if(!g) return;
-      const newYL = last.yardLine || last.yard || g.yardLine;
-      g.prevYL = toPct(g.yardLine); // store numeric
-      g.yardLine = newYL;
-      g.down = Number(last.down)||g.down; g.distance=Number(last.distance)||g.distance; g.possession = last.offense || g.possession;
-      if(typeof last.homeScore==='number') g.home.score=last.homeScore;
-      if(typeof last.awayScore==='number') g.away.score=last.awayScore;
-      g.lastPlay = last.text || last.playText || g.lastPlay;
-    }catch(e){ /* ignore per tick */ }
-  }
-
-  function startPolling(){
-    stopPolling();
-    const sec = +el('interval').value;
-    pollTimer = setInterval(loadTop10, sec*1000);
-    playsTimer = setInterval(async ()=>{
-      const ids = Array.from(state.featured);
-      const safe = el('safeMode').checked;
-      const pick = safe ? ids.slice(0,2) : ids.slice(0,5);
-      for(const id of pick){ await fetchPlays(id); }
-      render(true);
-    }, Math.max(15, sec/2)*1000);
-  }
-  function stopPolling(){ if(pollTimer) clearInterval(pollTimer); if(playsTimer) clearInterval(playsTimer); pollTimer=null; playsTimer=null; }
-
-  // ===== RENDER =====
-  function toPct(yl){
-    if(yl==null || yl==='') return 50;
-    const m = String(yl).match(/(\d+)/); const n = m? Number(m[1]): Number(yl);
-    if(!isFinite(n)) return 50; return Math.max(0, Math.min(100, n));
-  }
-
-  function cardHTML(g){
-    const statusLower=(g.status||'').toLowerCase();
-    const status = statusLower.includes('final')? 'Final' : statusLower.includes('in')||statusLower.includes('live')? 'Live' : statusLower.includes('sched')? 'Scheduled' : (g.status||'');
-    const ord=['1st','2nd','3rd','4th'][g.quarter-1] || (g.quarter===5?'OT':g.quarter);
-    const poss=g.possession||'';
-    const logosOn = el('logosToggle').checked;
-    const homeLogo = logosOn? logoFor(g.home.name):'';
-    const awayLogo = logosOn? logoFor(g.away.name):'';
-    const boosted = state.featured.has(g.id);
-
-    const yl = toPct(g.yardLine);
-    const trail = (g.prevYL!=null)? `<div class="trail" style="left:${Math.min(g.prevYL,yl)}%; width:${Math.abs(yl-(g.prevYL||yl))}%; opacity:.85"></div>`: '';
-
-    return `
-      <div class="card" id="card-${g.id}">
-        <div class="head">
-          <div class="row" style="gap:8px">
-            <span class="pill" style="border-color:${status==='Live'?'var(--good)':status==='Final'?'var(--bad)':'var(--warn)'};color:${status==='Live'?'var(--good)':status==='Final'?'var(--bad)':'var(--warn)'}">${status||'—'}</span>
-            <span class="pill">${ord} ${g.clock||''}</span>
-          </div>
-          <button class="btn" data-boost="${g.id}">${boosted? 'Boosted ✅':'Boost'}</button>
-        </div>
-        <div class="teams">
-          <div class="team">${homeLogo}<span class="name">${g.home.name}</span><span class="score">${g.home.score}</span></div>
-          <div class="vs">vs</div>
-          <div class="team" style="justify-content:flex-end">${awayLogo}<span class="name">${g.away.name}</span><span class="score">${g.away.score}</span></div>
-        </div>
-        <div class="meta">
-          ${g.down?`<span>${['1st','2nd','3rd','4th'][g.down-1]||g.down} & ${g.distance||''}</span>`:''}
-          ${g.yardLine?`<span>• On ${g.yardLine}</span>`:''}
-          ${poss?`<span>• POS: ${poss}</span>`:''}
-        </div>
-        <div class="field" data-id="${g.id}">
-          ${[10,20,30,40,50,60,70,80,90].map(x=>`<div class=yd style="left:${x}%"></div><div class=num style="left:${x}%">${x}</div>`).join('')}
-          ${trail}
-          <div class="ball" style="left:${yl}%"></div>
-        </div>
-        <div class="ticker">${g.lastPlay||''}</div>
-      </div>`;
-  }
-
-  function render(skipRebuild){
-    const banner=el('tipBanner'); banner.innerHTML = state.tipUrl? `<strong>Tip the show:</strong> <a href="${state.tipUrl}" target="_blank" rel="noopener">${state.tipText||state.tipUrl}</a>` : '';
-    el('sponsors').innerHTML = state.sponsors.map(t=>`<div class="slot">${t}</div>`).join('');
-    const shout=el('shout'); if(state.shout.length){ shout.style.display='block'; shout.innerHTML = state.shout.map(n=>`<span>🎉 ${n}</span>`).join(''); } else { shout.style.display='none'; }
-
-    const grid=el('grid');
-    if(!skipRebuild){
-      grid.innerHTML = state.games.map(cardHTML).join('');
-      grid.querySelectorAll('button[data-boost]').forEach(b=>{
-        b.onclick=()=>{ const id=b.getAttribute('data-boost'); if(state.featured.has(id)) state.featured.delete(id); else state.featured.add(id); render(); };
-      });
-    } else {
-      state.games.forEach(g=>{
-        const field = document.querySelector(`.field[data-id="${g.id}"]`);
-        if(!field) return; const ball=field.querySelector('.ball'); const trail=field.querySelector('.trail');
-        const yl=toPct(g.yardLine); ball.style.left = `${yl}%`;
-        if(trail){ trail.style.left = `${Math.min(g.prevYL||yl,yl)}%`; trail.style.width = `${Math.abs(yl-(g.prevYL||yl))}%`; trail.style.opacity='.85'; setTimeout(()=>{ if(trail) trail.style.opacity='0'; }, 900); }
-        const card=document.getElementById(`card-${g.id}`); if(card){ card.querySelector('.ticker').textContent = g.lastPlay||''; }
-      });
-    }
-  }
-
-  // ===== EVENTS =====
-  el('thisWeek').onclick = resolveCurrentWeek;
-  el('testKey').onclick = async()=>{ try{ await cfbd('/info'); setStatus('Key OK', true); } catch(e){ setStatus('Key failed: '+e.message); } };
-  el('start').onclick = async()=>{ try{ saveLocal(); await loadTop10(); startPolling(); }catch(e){ setStatus(e.message); } };
-  el('stop').onclick = ()=>{ stopPolling(); setStatus('stopped'); };
-  el('saveTip').onclick=()=>{ state.tipText=el('tipText').value; state.tipUrl=el('tipUrl').value; saveLocal(); render(); };
-  el('shoutBtn').onclick=()=>{ state.shout = (el('shoutIn').value||'').split(';').map(s=>s.trim()).filter(Boolean); render(); };
-  el('sponsorBtn').onclick=()=>{ state.sponsors = (el('sponsorIn').value||'').split(';').map(s=>s.trim()).filter(Boolean); render(); };
-  el('logosToggle').onchange=()=>render();
-
-  // Picker UI
-  el('pickBtn').onclick=()=>{ buildPicker(); el('picker').style.display='flex'; };
-  el('pickClose').onclick=()=>{ el('picker').style.display='none'; };
-  el('pickClear').onclick=()=>{ state.selected.clear(); buildPicker(); };
-  el('pickTop25').onclick=()=>{ // select games with any ranked team
-    state.selected.clear();
-    const rm = state.rankMap || new Map();
-    state.allGames.forEach(g=>{ if(rm.has(g.home.name)||rm.has(g.away.name)) state.selected.add(g.id); });
-    buildPicker();
+function normalizeGame(g){
+  const homeName=get(g,'homeTeam','home_team','home'), awayName=get(g,'awayTeam','away_team','away');
+  const id = get(g,'id','gameId','game_id') || `${homeName}-${awayName}`;
+  return {
+    id,
+    home:{ name:homeName, score:num(get(g,'homeScore','home_points','home_points_total'))||0 },
+    away:{ name:awayName, score:num(get(g,'awayScore','away_points','away_points_total'))||0 },
+    status:(get(g,'status')||get(g,'gameStatus')||'').toString(),
+    quarter:num(get(g,'period','quarter','current_period'))||0,
+    clock:get(g,'clock','game_clock','display_clock')||'',
+    down:num(get(g,'down','current_down'))||undefined,
+    distance:num(get(g,'distance','current_distance'))||undefined,
+    yardLine:get(g,'yardLine','yard_line','field_position')||'',
+    possession:get(g,'possession','possessionTeam','pos_team')||'',
+    lastPlay:get(g,'lastPlay','last_play')||'',
+    kickoff: fmtKick(g),
+    prevYL:undefined
   };
-  el('pickApply').onclick=()=>{ el('picker').style.display='none'; state.games = state.allGames.filter(g=>state.selected.has(g.id)).slice(0,10); render(); };
+}
 
-  function buildPicker(){
-    const list=el('pickList');
-    list.innerHTML = state.allGames.map(g=>{
-      const checked = state.selected.has(g.id)? 'checked':'';
-      return `<label class="pickrow"><div><input type="checkbox" data-pick="${g.id}" ${checked}> <strong>${g.home.name}</strong> vs <strong>${g.away.name}</strong></div><small>${g.status||''}</small></label>`;
-    }).join('');
-    list.querySelectorAll('input[data-pick]').forEach(cb=>{
-      cb.onchange=()=>{ const id=cb.getAttribute('data-pick'); if(cb.checked) state.selected.add(id); else state.selected.delete(id); };
+function toPct(yl){ if(yl==null||yl==='') return 50; const m=String(yl).match(/(\d+)/); const n=m?Number(m[1]):Number(yl); return isFinite(n)?Math.max(0,Math.min(100,n)):50; }
+
+async function loadData(){
+  setStatus('loading…');
+  await loadLogos();
+  const year=+el('yearIn').value, week=+el('weekIn').value, st=el('seasonType').value, poll=el('poll').value;
+
+  // 1) rankings
+  let top25=[]; try{
+    const r=await cfbd(`/rankings?year=${year}&week=${week}&seasonType=${st}&poll=${encodeURIComponent(poll)}`);
+    const p=(r||[])[0]?.polls?.find?.(x=>x.poll===poll)||(r||[])[0]; const entries=p?.ranks||p?.entries||[];
+    top25=entries.map(x=>x.school||x.team||x.name);
+  }catch(_){}
+  state.rankMap=new Map(top25.map((t,i)=>[t,i+1]));
+
+  // 2) scoreboard FBS → fallback games FBS
+  let board=[]; let used='scoreboard';
+  try{ board=await cfbd(`/scoreboard?year=${year}&week=${week}&seasonType=${st}&classification=fbs`);}catch(_){}
+  if(!board||!board.length){ try{ board=await cfbd(`/games?year=${year}&week=${week}&seasonType=${st}&division=fbs`); used='games'; }catch(_){} }
+  if(!board||!board.length){ state.allGames=[]; state.games=[]; setStatus(`No FBS games for ${year} Wk ${week} (${st})`); render(); return; }
+
+  state.allGames=(board||[]).map(normalizeGame);
+
+  // 3) default list: Top-25 games sorted 1→25 (by min rank in matchup)
+  if(!state.selectedOrder.length){
+    const rm=state.rankMap, ranked=state.allGames
+      .filter(g=>rm.has(g.home.name)||rm.has(g.away.name))
+      .map(g=>({g,rank:Math.min(rm.get(g.home.name)||99, rm.get(g.away.name)||99)}))
+      .sort((a,b)=>a.rank-b.rank).map(x=>x.g).slice(0,25);
+    // take first 10 by rank for display
+    state.games=ranked.slice(0,10);
+  }else{
+    // custom ordered IDs → map to games
+    const map=new Map(state.allGames.map(g=>[g.id,g]));
+    state.games=state.selectedOrder.map(id=>map.get(id)).filter(Boolean).slice(0,10);
+  }
+
+  setStatus(used==='scoreboard'?'ready':'ready (fallback)',true);
+  render();
+}
+
+async function fetchPlays(gameId){
+  try{
+    const plays=await cfbd(`/live/plays?gameId=${gameId}`); if(!plays||!plays.length) return;
+    const last=plays[plays.length-1], g=state.games.find(x=>x.id===gameId); if(!g) return;
+    g.prevYL=toPct(g.yardLine); g.yardLine=last.yardLine||last.yard||g.yardLine;
+    g.down=Number(last.down)||g.down; g.distance=Number(last.distance)||g.distance; g.possession=last.offense||g.possession;
+    if(typeof last.homeScore==='number') g.home.score=last.homeScore;
+    if(typeof last.awayScore==='number') g.away.score=last.awayScore;
+    g.lastPlay=last.text||last.playText||g.lastPlay;
+    // Try to expose clock/period when available (not all payloads include)
+    if(Number(last.period)) g.quarter=Number(last.period);
+    if(last.clock) g.clock=last.clock;
+    render(true);
+  }catch(_){}
+}
+
+function startPolling(){
+  stopPolling();
+  const sec=+el('interval').value;
+  pollTimer=setInterval(loadData, sec*1000);
+  playsTimer=setInterval(async()=>{
+    const ids=Array.from(state.featured);
+    const pick=(el('safeMode').checked? ids.slice(0,2):ids.slice(0,5));
+    for(const id of pick) await fetchPlays(id);
+  }, Math.max(15,sec/2)*1000);
+}
+function stopPolling(){ if(pollTimer) clearInterval(pollTimer); if(playsTimer) clearInterval(playsTimer); pollTimer=playsTimer=null; }
+
+function cardHTML(g){
+  const lower=(g.status||'').toLowerCase();
+  let status=''; if(lower.includes('final')) status='Final';
+  else if(lower.includes('in')||lower.includes('live')) status='Live';
+  else if(lower.includes('sched')) status='Scheduled';
+  else status=g.status||'—';
+
+  const q=(g.quarter||0), ord=q? (['1st','2nd','3rd','4th'][q-1]|| (q===5?'OT':q)) : '—';
+  const logos=el('logosToggle').checked;
+  const homeLogo=logos? logoFor(g.home.name):'', awayLogo=logos? logoFor(g.away.name):'';
+  const boosted=state.featured.has(g.id);
+  const yl=toPct(g.yardLine);
+  const trail=(g.prevYL!=null)? `<div class="trail" style="left:${Math.min(g.prevYL,yl)}%;width:${Math.abs(yl-(g.prevYL||yl))}%;opacity:.85"></div>`:'';
+
+  return `
+  <div class="card" id="card-${g.id}">
+    <div class="head">
+      <div class="row" style="gap:8px">
+        <span class="pill" style="border-color:${status==='Live'?'var(--good)':status==='Final'?'var(--bad)':'var(--warn)'};color:${status==='Live'?'var(--good)':status==='Final'?'var(--bad)':'var(--warn)'}">${status}</span>
+        <span class="pill">${ord}${g.clock? ' • '+g.clock:''}${(!g.clock && status!=='Live' && g.kickoff)? ' • '+g.kickoff:''}</span>
+      </div>
+      <button class="btn" data-boost="${g.id}">${boosted?'Boosted ✅':'Boost'}</button>
+    </div>
+    <div class="teams">
+      <div class="team">${homeLogo}<span class="name">${g.home.name}</span><span class="score">${g.home.score}</span></div>
+      <div class="vs">vs</div>
+      <div class="team" style="justify-content:flex-end">${awayLogo}<span class="name">${g.away.name}</span><span class="score">${g.away.score}</span></div>
+    </div>
+    <div class="meta">
+      ${g.down?`<span>${['1st','2nd','3rd','4th'][g.down-1]||g.down} & ${g.distance||''}</span>`:''}
+      ${g.yardLine?`<span>• On ${g.yardLine}</span>`:''}
+      ${g.possession?`<span>• POS: ${g.possession}</span>`:''}
+    </div>
+    <div class="field" data-id="${g.id}">
+      ${[10,20,30,40,50,60,70,80,90].map(x=>`<div class=yd style="left:${x}%"></div><div class=num style="left:${x}%">${x}</div>`).join('')}
+      ${trail}
+      <div class="ball" style="left:${yl}%"></div>
+    </div>
+    <div class="ticker">${g.lastPlay||''}</div>
+  </div>`;
+}
+
+function render(partial){
+  const grid=el('grid');
+  if(!partial){
+    grid.innerHTML=state.games.map(cardHTML).join('');
+    grid.querySelectorAll('button[data-boost]').forEach(b=>{
+      b.onclick=()=>{ const id=b.getAttribute('data-boost'); if(state.featured.has(id)) state.featured.delete(id); else state.featured.add(id); render(); };
+    });
+  }else{
+    state.games.forEach(g=>{
+      const field=document.querySelector(`.field[data-id="${g.id}"]`); if(!field) return;
+      const ball=field.querySelector('.ball'); const trail=field.querySelector('.trail');
+      const yl=toPct(g.yardLine); ball.style.left=`${yl}%`;
+      if(trail){ trail.style.left=`${Math.min(g.prevYL||yl,yl)}%`; trail.style.width=`${Math.abs(yl-(g.prevYL||yl))}%`; trail.style.opacity='.85'; setTimeout(()=>{ if(trail) trail.style.opacity='0'; }, 900); }
+      const card=document.getElementById(`card-${g.id}`); if(card){ card.querySelector('.ticker').textContent=g.lastPlay||''; }
     });
   }
+}
 
-  // Init
-  loadLocal();
-  </script>
+/* ---------- Picker (select & order) ---------- */
+function openPicker(){
+  buildPickLists();
+  el('picker').style.display='flex';
+}
+function closePicker(){ el('picker').style.display='none'; }
+
+function buildPickLists(){
+  // Left list: all games with a Select button
+  const rm=state.rankMap; // to show rank hint
+  el('pickAll').innerHTML = state.allGames.map(g=>{
+    const rH = rm.get(g.home.name), rA = rm.get(g.away.name);
+    const hint = (rH||rA)? ` (Rk ${Math.min(rH||99,rA||99)})` : '';
+    return `<div class="pickrow">
+      <div><strong>${g.home.name}</strong> vs <strong>${g.away.name}</strong><span class="small">${hint}</span></div>
+      <button class="btn" data-add="${g.id}">Add</button>
+    </div>`;
+  }).join('');
+
+  // Right list: chosen order with Up/Down/Remove
+  const map=new Map(state.allGames.map(g=>[g.id,g]));
+  el('pickChosen').innerHTML = state.selectedOrder.map((id,idx)=>{
+    const g=map.get(id); if(!g) return '';
+    return `<div class="orderrow" data-id="${id}">
+      <div><span class="pill">#${idx+1}</span> <strong>${g.home.name}</strong> vs <strong>${g.away.name}</strong></div>
+      <div class="row">
+        <button class="btn" data-up="${id}">↑</button>
+        <button class="btn" data-down="${id}">↓</button>
+        <button class="btn" data-rem="${id}">Remove</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Wire events
+  el('pickAll').querySelectorAll('button[data-add]').forEach(b=>{
+    b.onclick=()=>{ const id=b.getAttribute('data-add'); if(state.selectedOrder.includes(id)) return; if(state.selectedOrder.length>=10) return; state.selectedOrder.push(id); buildPickLists(); };
+  });
+  el('pickChosen').querySelectorAll('button[data-up]').forEach(b=>{
+    b.onclick=()=>{ const id=b.getAttribute('data-up'); const i=state.selectedOrder.indexOf(id); if(i>0){ const t=state.selectedOrder[i-1]; state.selectedOrder[i-1]=id; state.selectedOrder[i]=t; buildPickLists(); }};
+  });
+  el('pickChosen').querySelectorAll('button[data-down]').forEach(b=>{
+    b.onclick=()=>{ const id=b.getAttribute('data-down'); const i=state.selectedOrder.indexOf(id); if(i>=0 && i<state.selectedOrder.length-1){ const t=state.selectedOrder[i+1]; state.selectedOrder[i+1]=id; state.selectedOrder[i]=t; buildPickLists(); }};
+  });
+  el('pickChosen').querySelectorAll('button[data-rem]').forEach(b=>{
+    b.onclick=()=>{ const id=b.getAttribute('data-rem'); state.selectedOrder=state.selectedOrder.filter(x=>x!==id); buildPickLists(); };
+  });
+}
+
+/* ---------- Events ---------- */
+el('thisWeek').onclick=resolveCurrentWeek;
+el('testKey').onclick=async()=>{ try{ await cfbd('/info'); setStatus('Key OK',true);}catch(e){ setStatus('Key failed: '+e.message); } };
+el('start').onclick=async()=>{ try{ saveLocal(); await loadData(); startPolling(); }catch(e){ setStatus(e.message); } };
+el('stop').onclick=()=>{ stopPolling(); setStatus('stopped'); };
+el('logosToggle').onchange=()=>render();
+
+el('pickBtn').onclick=openPicker;
+el('pickClose').onclick=closePicker;
+el('pickClear').onclick=()=>{ state.selectedOrder=[]; buildPickLists(); };
+el('pickTop25').onclick=()=>{ // fill chosen with top-25 by rank (first 10)
+  const rm=state.rankMap, ranked=state.allGames
+    .filter(g=>rm.has(g.home.name)||rm.has(g.away.name))
+    .map(g=>({g,rank:Math.min(rm.get(g.home.name)||99, rm.get(g.away.name)||99)}))
+    .sort((a,b)=>a.rank-b.rank).map(x=>x.g.id).slice(0,10);
+  state.selectedOrder=ranked; buildPickLists();
+};
+el('pickApply').onclick=()=>{ closePicker(); const map=new Map(state.allGames.map(g=>[g.id,g])); state.games=state.selectedOrder.map(id=>map.get(id)).filter(Boolean).slice(0,10); render(); };
+
+loadLocal();
+</script>
 </body>
 </html>
