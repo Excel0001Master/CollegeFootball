@@ -101,19 +101,11 @@
       <label>Poll <select id="poll"><option value="AP">AP</option><option value="Coaches">Coaches</option></select></label>
       <label>Interval <select id="interval"><option value="120">120s</option><option value="180">180s</option><option value="60">60s</option></select></label>
       <button class="btn" id="thisWeek">This Week</button>
+      <button class="btn" id="testKey">Test Key</button>
       <button class="btn" id="start">Start</button>
       <button class="btn" id="stop">Stop</button>
       <label class="pill"><input type="checkbox" id="logosToggle" checked> Show logos</label>
       <label class="pill"><input type="checkbox" id="safeMode" checked> Free‑tier safe</label>
-    </div>
-    <div class="row" style="margin-top:6px">
-      <label>Tip text <input id="tipText" placeholder="BuyMeACoffee: tigerfan" size="26"></label>
-      <label>Tip URL <input id="tipUrl" placeholder="https://your-tip-link" size="30"></label>
-      <button class="btn" id="saveTip">Set</button>
-      <label>Shout‑outs (semicolon ; separated) <input id="shoutIn" size="36" placeholder="Thanks Sam ($10)!; New Member: Alex"></label>
-      <button class="btn" id="shoutBtn">Update</button>
-      <label>Sponsors (semicolon ; separated) <input id="sponsorIn" size="36" placeholder="Use code TIGER for 10% at Example.com"></label>
-      <button class="btn" id="sponsorBtn">Set</button>
     </div>
   </div>
 
@@ -141,7 +133,10 @@
   async function cfbd(path){
     const key = el('keyIn').value.trim(); if(!key) throw new Error('Missing key');
     const res = await fetch(`https://api.collegefootballdata.com${path}`, { headers:{ Authorization:`Bearer ${key}` }});
-    if(!res.ok) throw new Error('CFBD '+res.status);
+    if(!res.ok){
+      let txt=''; try{ txt=await res.text(); }catch(_){ }
+      throw new Error(`CFBD ${res.status} ${res.statusText}${txt? ' — '+txt.slice(0,80):''}`);
+    }
     return res.json();
   }
 
@@ -199,19 +194,28 @@
       const pollObj=(ranks||[])[0]?.polls?.find?.(p=>p.poll===poll) || (ranks||[])[0];
       const entries=pollObj?.ranks || pollObj?.entries || [];
       top25=entries.map(r=> (r.school||r.team||r.name));
-    }catch(e){ /* if rankings fail, continue with all games */ }
+    }catch(e){ /* continue even if rankings fail */ }
 
-    // 2) Scoreboard for week
-    let board=[]; try{ board=await cfbd(`/scoreboard?year=${year}&week=${week}&seasonType=${st}`); }
+    // 2) Scoreboard for week (fallback to /games if empty)
+    let board=[]; let used='scoreboard';
+    try{ board=await cfbd(`/scoreboard?year=${year}&week=${week}&seasonType=${st}`); }
     catch(e){ board=[]; }
 
-    // 3) Filter to Top‑25, pick Top‑10 by min rank
+    if(!board || !board.length){
+      try{ board=await cfbd(`/games?year=${year}&week=${week}&division=fbs`); used='games'; }
+      catch(e){ board=[]; }
+    }
+
+    if(!board || !board.length){ setStatus(`No games found for year ${year} week ${week} (${st}).`); state.games=[]; render(); return; }
+
+    // 3) Filter to Top‑25 and pick Top‑10
     const rankMap=new Map(top25.map((t,i)=>[t,i+1]));
     const games=(board||[]).map(normalizeGame);
     const withRank = games.map(g=>({ g, rank: Math.min(rankMap.get(g.home.name)||99, rankMap.get(g.away.name)||99) }));
-    const top10 = withRank.sort((a,b)=>a.rank-b.rank).slice(0,10).map(x=>x.g);
+    const top10 = (withRank.length? withRank.sort((a,b)=>a.rank-b.rank).slice(0,10): games.slice(0,10)).map(x=>x.g||x);
+
     state.games = top10;
-    setStatus('ready', true);
+    setStatus(used==='scoreboard'? 'ready':'ready (fallback)');
     render();
   }
 
@@ -328,6 +332,7 @@
 
   // ===== EVENTS =====
   el('thisWeek').onclick = resolveCurrentWeek;
+  el('testKey').onclick = async()=>{ try{ await cfbd('/info'); setStatus('Key OK', true); } catch(e){ setStatus('Key failed: '+e.message); } };
   el('start').onclick = async()=>{ try{ saveLocal(); await loadTop10(); startPolling(); }catch(e){ setStatus(e.message); } };
   el('stop').onclick = ()=>{ stopPolling(); setStatus('stopped'); };
   el('saveTip').onclick=()=>{ state.tipText=el('tipText').value; state.tipUrl=el('tipUrl').value; saveLocal(); render(); };
@@ -336,6 +341,7 @@
   el('logosToggle').onchange=()=>render();
 
   // Init
+  loadLocal();
   loadLocal();
   </script>
 </body>
