@@ -47,7 +47,7 @@
     <div class="row">
       <strong>Top-25 CFB Live Board</strong>
       <span id="status" class="pill">idle</span>
-      <span class="small">Paste CFBD key → pick season/week → Start. Default: AP Top-25 by rank.</span>
+      <span class="small">Paste CFBD key → pick season/week → Start. Default: AP Top-25.</span>
     </div>
     <div class="row" style="margin-top:6px">
       <label>CFBD Key <input id="keyIn" placeholder="paste your key" size="38"></label>
@@ -82,7 +82,7 @@
       </div>
       <div class="pickcols">
         <div class="picklist">
-          <div class="small">All FBS games this week (rank shown when applicable)</div>
+          <div class="small">All FBS games this week (show rank where available)</div>
           <div id="pickLeft"></div>
         </div>
         <div class="picklist">
@@ -95,19 +95,11 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const S = {
-  allGames: [],
-  games: [],
-  rankMap: new Map(),
-  logos: new Map(),
-  fbsSet: new Set(),
-  selected: [],
-  featured: new Set()
-};
+const S = { allGames:[], games:[], rankMap:new Map(), logos:new Map(), fbsSet:new Set(), selected:[], featured:new Set() };
 let pollTimer=null, playsTimer=null;
 
 function setStatus(t, ok){ const s=$('status'); s.textContent=t; s.className='pill'+(ok?' ok':''); }
-function saveKey(){ localStorage.setItem('cfbdKey', $('keyIn').value.trim()); }
+function saveKey(){ localStorage.setItem('cfbdKey',$('keyIn').value.trim()); }
 function loadKey(){ const k=localStorage.getItem('cfbdKey'); if(k) $('keyIn').value=k; }
 
 async function cfbd(path){
@@ -126,30 +118,33 @@ async function resolveWeek(){
 }
 
 async function loadFbsAndLogos(){
-  if(S.fbsSet.size && (S.logos.size || !$('logosToggle').checked)) return;
-  const teams=await cfbd(`/teams/fbs?year=${$('yearIn').value}`);
-  teams.forEach(t=>{
-    S.fbsSet.add(t.school);
-    const u=(t.logos&&t.logos[0])||t.logo||''; if(u) S.logos.set(t.school,u);
-  });
+  if(!S.fbsSet.size || ($('logosToggle').checked && !S.logos.size)){
+    const teams=await cfbd(`/teams/fbs?year=${$('yearIn').value}`);
+    teams.forEach(t=>{
+      S.fbsSet.add(t.school);
+      const u=(t.logos&&t.logos[0])||t.logo||''; if(u) S.logos.set(t.school,u);
+    });
+  }
 }
 function logoFor(n){ const u=S.logos.get(n); return $('logosToggle').checked && u ? `<span class="logo"><img src="${u}" alt=""></span>`:`<span class="logo">${n.split(' ').map(s=>s[0]).join('').slice(0,3)}</span>`; }
 function rankTag(n){ const r=S.rankMap.get(n); return r? `<span class="rank">#${r}</span>`:''; }
 function num(v){ const n=Number(v); return isFinite(n)?n:undefined; }
 function get(o,...k){ for(const x of k){ if(o && o[x]!=null) return o[x]; } }
 function toPct(yl){ if(!yl && yl!==0) return 50; const m=String(yl).match(/(\d+)/); const n=m?+m[1]:+yl; return isFinite(n)?Math.max(0,Math.min(100,n)):50; }
-function kickStr(g){ const dt=get(g,'startDate','start_date','start'); return dt? `Kick: ${String(dt).slice(0,16)}`:''; }
+function kickStr(g){ const dt=get(g,'startDate','start_date','start','startTime'); return dt? `Kick: ${String(dt).slice(0,16)}`:''; }
 
-function norm(g){
+function normalize(g){
   const home=get(g,'homeTeam','home_team','home'), away=get(g,'awayTeam','away_team','away');
   const id=get(g,'id','gameId','game_id') || `${home}-${away}`;
+  const hScore = num(get(g,'homeScore','home_points','home_points_total','homePoints'));
+  const aScore = num(get(g,'awayScore','away_points','away_points_total','awayPoints'));
   return {
     id,
-    home:{name:home, score:num(get(g,'homeScore','home_points','home_points_total'))||0},
-    away:{name:away, score:num(get(g,'awayScore','away_points','away_points_total'))||0},
-    status:(get(g,'status')||get(g,'gameStatus')||'').toString(),
-    quarter:num(get(g,'period','quarter','current_period'))||0,
-    clock:get(g,'clock','game_clock','display_clock')||'',
+    home:{name:home, score:isFinite(hScore)?hScore:0},
+    away:{name:away, score:isFinite(aScore)?aScore:0},
+    status:(get(g,'status','gameStatus')||'').toString(),
+    quarter:num(get(g,'period','quarter','current_period','currentPeriod'))||0,
+    clock:get(g,'clock','game_clock','display_clock','displayClock')||'',
     down:num(get(g,'down','current_down')), distance:num(get(g,'distance','current_distance')),
     yardLine:get(g,'yardLine','yard_line','field_position')||'',
     possession:get(g,'possession','possessionTeam','pos_team')||'',
@@ -158,28 +153,44 @@ function norm(g){
   };
 }
 
+function extractTop25(resp,poll){
+  const out=[];
+  if(Array.isArray(resp)){
+    for(const w of resp){
+      if(w && Array.isArray(w.polls)){
+        const match = w.polls.find(p=>p.poll===poll) || w.polls[0];
+        if(match && Array.isArray(match.ranks)){
+          match.ranks.forEach(e=>out.push(e.school||e.team||e.name));
+          if(out.length) break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
 async function loadData(){
   setStatus('loading…');
   await loadFbsAndLogos();
   const year=+$('yearIn').value, week=+$('weekIn').value, st=$('seasonType').value, poll=$('poll').value;
 
   // rankings
-  let top25=[]; try{
+  try{
     const rr=await cfbd(`/rankings?year=${year}&week=${week}&seasonType=${st}&poll=${encodeURIComponent(poll)}`);
-    const po=(rr||[])[0]?.polls?.find?.(p=>p.poll===poll)||(rr||[])[0]; const ents=po?.ranks||po?.entries||[];
-    top25=ents.map(x=>x.school||x.team||x.name);
-  }catch{} S.rankMap=new Map(top25.map((t,i)=>[t,i+1]));
+    const list=extractTop25(rr,poll);
+    S.rankMap=new Map(list.map((t,i)=>[t,i+1]));
+  }catch{ S.rankMap=new Map(); }
 
-  // games (prefer scoreboard), then filter to FBS (either team in FBS Set)
+  // games: scoreboard preferred
   let raw=[]; let used='scoreboard';
   try{ raw=await cfbd(`/scoreboard?year=${year}&week=${week}&seasonType=${st}&classification=fbs`);}catch{}
   if(!raw || !raw.length){ try{ raw=await cfbd(`/games?year=${year}&week=${week}&seasonType=${st}&division=fbs`); used='games'; }catch{} }
-  // Extra safety filter: only show matchups where at least one team is FBS
   const fbsOnly=(raw||[]).filter(g=> S.fbsSet.has(get(g,'homeTeam','home_team','home')) || S.fbsSet.has(get(g,'awayTeam','away_team','away')) );
   if(!fbsOnly.length){ S.allGames=[]; S.games=[]; setStatus(`No FBS games for ${year} Wk ${week}`,false); render(); return; }
 
-  S.allGames=fbsOnly.map(norm);
+  S.allGames=fbsOnly.map(normalize);
 
+  // Default fill: Top-25 matchups ordered by rank, else any 10.
   if(!S.selected.length){
     const rm=S.rankMap;
     const ranked=S.allGames
@@ -192,7 +203,7 @@ async function loadData(){
     S.games=S.selected.map(id=>map.get(id)).filter(Boolean).slice(0,10);
   }
 
-  setStatus(used==='scoreboard'?'ready':'ready (fallback)',true);
+  setStatus(`${used==='scoreboard'?'ready':'ready (fallback)'} — games:${S.allGames.length} ranks:${S.rankMap.size}`,true);
   render();
 }
 
@@ -223,15 +234,15 @@ function stopTimers(){ if(pollTimer) clearInterval(pollTimer); if(playsTimer) cl
 
 function cardHTML(g){
   const sl=(g.status||'').toLowerCase();
-  let status='—'; if(sl.includes('final')) status='Final'; else if(sl.includes('in')||sl.includes('live')) status='Live'; else if(sl.includes('sched')) status='Scheduled'; else status=(g.status||'—');
+  let st='—'; if(sl.includes('final')) st='Final'; else if(sl.includes('in')||sl.includes('live')) st='Live'; else if(sl.includes('sched')) st='Scheduled'; else st=(g.status||'—');
   const q=g.quarter||0, ord=q? (['1st','2nd','3rd','4th'][q-1]||(q===5?'OT':q)) : '—';
   const boosted=S.featured.has(g.id);
   const yl=toPct(g.yardLine), trail=(g.prevYL!=null)? `<div class="trail" style="left:${Math.min(g.prevYL,yl)}%;width:${Math.abs(yl-(g.prevYL||yl))}%;opacity:.85"></div>`:'';
   return `<div class="card" id="card-${g.id}">
     <div class="head">
       <div class="row" style="gap:8px">
-        <span class="pill" style="border-color:${status==='Live'?'var(--good)':status==='Final'?'var(--bad)':'var(--warn)'};color:${status==='Live'?'var(--good)':status==='Final'?'var(--bad)':'var(--warn)'}">${status}</span>
-        <span class="pill">${ord}${g.clock?' • '+g.clock:(!g.clock && status!=='Live' && g.kickoff? ' • '+g.kickoff:'')}</span>
+        <span class="pill" style="border-color:${st==='Live'?'var(--good)':st==='Final'?'var(--bad)':'var(--warn)'};color:${st==='Live'?'var(--good)':st==='Final'?'var(--bad)':'var(--warn)'}">${st}</span>
+        <span class="pill">${ord}${g.clock?' • '+g.clock:(!g.clock && st!=='Live' && g.kickoff? ' • '+g.kickoff:'')}</span>
       </div>
       <button class="btn" data-boost="${g.id}">${boosted?'Boosted ✅':'Boost'}</button>
     </div>
@@ -270,18 +281,16 @@ function render(partial){
   }
 }
 
-/* -------- Picker (robust click handling) -------- */
+/* ---------- Picker (scoped handler, robust) ---------- */
 function openPicker(){ buildPicker(); $('picker').style.display='flex'; }
 function closePicker(){ $('picker').style.display='none'; }
 function buildPicker(){
   const left=$('pickLeft'), right=$('pickRight'), rm=S.rankMap, chosen=new Set(S.selected);
-  // Left: games not chosen
   left.innerHTML = S.allGames.filter(g=>!chosen.has(g.id)).map(g=>{
     const rH=rm.get(g.home.name), rA=rm.get(g.away.name);
     const hint=(rH||rA)? ` <span class="small">(Rk ${Math.min(rH||99,rA||99)})</span>`:'';
     return `<div class="pickrow"><div><strong>${g.home.name}</strong> vs <strong>${g.away.name}</strong>${hint}</div><button class="btn" data-add="${g.id}">Add</button></div>`;
   }).join('');
-  // Right: selected order
   const map=new Map(S.allGames.map(g=>[g.id,g]));
   right.innerHTML = S.selected.map((id,i)=>{
     const g=map.get(id); if(!g) return '';
@@ -297,51 +306,34 @@ function buildPicker(){
     </div>`;
   }).join('');
 }
-// single delegated listener using .closest() so clicks on button edges still register
-document.addEventListener('click',(ev)=>{
-  const picker=$('picker'); if(!picker) return;
-
-  // actions (top bar)
-  const actEl = ev.target.closest('[data-action]');
-  if(actEl && picker.contains(actEl)){
-    const a=actEl.dataset.action;
-    if(a==='close'){ closePicker(); return; }
-    if(a==='clear'){ S.selected=[]; buildPicker(); return; }
-    if(a==='top25'){
-      const rm=S.rankMap;
-      const ranked=S.allGames
-        .filter(g=>rm.has(g.home.name)||rm.has(g.away.name))
-        .map(g=>({g,rank:Math.min(rm.get(g.home.name)||99, rm.get(g.away.name)||99)}))
-        .sort((a,b)=>a.rank-b.rank).map(x=>x.g.id).slice(0,10);
-      S.selected=ranked; buildPicker(); return;
-    }
-    if(a==='apply'){
-      const map=new Map(S.allGames.map(g=>[g.id,g]));
-      S.games=S.selected.map(id=>map.get(id)).filter(Boolean).slice(0,10);
-      closePicker(); render(); return;
-    }
+// clicks inside the modal only
+$('picker').addEventListener('click',(ev)=>{
+  const btn = ev.target.closest('button'); if(!btn) return;
+  const a=btn.dataset.action, add=btn.dataset.add, rem=btn.dataset.rem, up=btn.dataset.up, down=btn.dataset.down;
+  if(a==='close'){ closePicker(); return; }
+  if(a==='clear'){ S.selected=[]; buildPicker(); return; }
+  if(a==='top25'){
+    const rm=S.rankMap;
+    const ranked=S.allGames
+      .filter(g=>rm.has(g.home.name)||rm.has(g.away.name))
+      .map(g=>({g,rank:Math.min(rm.get(g.home.name)||99, rm.get(g.away.name)||99)}))
+      .sort((x,y)=>x.rank-y.rank).map(x=>x.g.id).slice(0,10);
+    S.selected=ranked; buildPicker(); return;
   }
-
-  // Add / Remove / Up / Down (use closest)
-  const addBtn = ev.target.closest('button[data-add]');
-  const remBtn = ev.target.closest('button[data-rem]');
-  const upBtn  = ev.target.closest('button[data-up]');
-  const dnBtn  = ev.target.closest('button[data-down]');
-
-  if(addBtn && picker.contains(addBtn)){
-    const id=addBtn.dataset.add; if(!S.selected.includes(id) && S.selected.length<10){ S.selected.push(id); buildPicker(); }
-  } else if(remBtn && picker.contains(remBtn)){
-    const id=remBtn.dataset.rem; S.selected=S.selected.filter(x=>x!==id); buildPicker();
-  } else if(upBtn && picker.contains(upBtn)){
-    const id=upBtn.dataset.up; const i=S.selected.indexOf(id); if(i>0){ [S.selected[i-1],S.selected[i]]=[S.selected[i],S.selected[i-1]]; buildPicker(); }
-  } else if(dnBtn && picker.contains(dnBtn)){
-    const id=dnBtn.dataset.down; const i=S.selected.indexOf(id); if(i>=0 && i<S.selected.length-1){ [S.selected[i+1],S.selected[i]]=[S.selected[i],S.selected[i+1]]; buildPicker(); }
+  if(a==='apply'){
+    const map=new Map(S.allGames.map(g=>[g.id,g]));
+    S.games=S.selected.map(id=>map.get(id)).filter(Boolean).slice(0,10);
+    closePicker(); render(); return;
   }
+  if(add){ if(!S.selected.includes(add) && S.selected.length<10){ S.selected.push(add); buildPicker(); } return; }
+  if(rem){ S.selected=S.selected.filter(x=>x!==rem); buildPicker(); return; }
+  if(up){ const i=S.selected.indexOf(up); if(i>0){ [S.selected[i-1],S.selected[i]]=[S.selected[i],S.selected[i-1]]; buildPicker(); } return; }
+  if(down){ const i=S.selected.indexOf(down); if(i>=0 && i<S.selected.length-1){ [S.selected[i+1],S.selected[i]]=[S.selected[i],S.selected[i+1]]; buildPicker(); } return; }
 });
 
-/* -------- wire controls -------- */
+/* wire controls */
 $('thisWeek').onclick=resolveWeek;
-$('testKey').onclick=async()=>{ try{ await cfbd('/info'); setStatus('Key OK',true);}catch(e){ setStatus('Key failed: '+e.message); } };
+$('testKey').onclick=async()=>{ try{ await cfbd('/info'); setStatus('Key OK',true);}catch(e){ setStatus('Key failed: '+e.message,false); } };
 $('start').onclick=async()=>{ try{ saveKey(); await loadData(); startTimers(); }catch(e){ setStatus(e.message,false); } };
 $('stop').onclick=()=>{ stopTimers(); setStatus('stopped'); };
 $('logosToggle').onchange=()=>render();
