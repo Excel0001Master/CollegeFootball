@@ -1,46 +1,25 @@
-let board=[]; let used='scoreboard';
-    try{ board=await cfbd(`/scoreboard?year=${year}&week=${week}&seasonType=${st}&classification=fbs`); }
-    catch(e){ board=[]; }
-
-    if(!board || !board.length){
-      try{ board=await cfbd(`/games?year=${year}&week=${week}&seasonType=${st}&division=fbs`); used='games'; }
-      catch(e){ board=[]; }
-    }<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Top‑10 College Football — Live Board (CFBD)</title>
+  <title>Top-10 College Football — Live Board (CFBD)</title>
   <!--
-    SINGLE PAGE, ONE URL
-    - Paste this file as index.html in your GitHub Pages repo.
-    - It is BOTH the control AND the display. No second page needed.
-    - Your CFBD API key is entered at runtime (stored only in localStorage).
-      Do NOT commit your key to GitHub. If you share this link publicly,
-      viewers could open the page and it will *ask* for a key — do not share
-      your key. For streaming, use the page in your own browser or in OBS.
+    SINGLE PAGE (control + display)
+    - Paste this as index.html in your GitHub Pages repo.
+    - Enter your CFBD API key in the control bar at runtime.
+    - Your key is stored only in your browser (localStorage). Do NOT hard-code it.
 
-    DATA
-    - Uses CFBD /rankings (AP) to select Top‑25, then picks the Top‑10 matchups
-      for the chosen week. Polls /scoreboard on an interval.
-    - Optional: per‑card "Boost" enables /live/plays for that game to show
-      ball spot + last play with field animation. Limit Boost to <=2 games on
-      the free tier to stay under 1,000 req/month.
-
-    LAYOUT
-    - Desktop: 2 columns of 5 (Top‑10)
-    - Tablet (iPad): tight 2 columns
-    - Mobile: 1 column
-
-    LOGOS
-    - Toggle in the control bar. Logos are fetched from CFBD /teams/fbs when
-      available. You are responsible for trademark usage; turn off if unsure.
+    Features
+    - Pulls Top-25 (AP), filters FBS scoreboard; falls back to FBS games list if needed.
+    - Auto-select Top-10, or click “Pick Games” to choose any 10.
+    - Logos (from /teams/fbs), tip banner, sponsors, shout-outs.
+    - Mini field with ball spot; “Boost” a couple of games to poll /live/plays for last play + animation.
   -->
   <style>
     :root{
       --bg:#0b0b0b; --ink:#fff; --muted:#bfbfbf; --glass:rgba(255,255,255,.06); --line:#1d1d1d;
       --accent:#8a2be2; --good:#22c55e; --warn:#f59e0b; --bad:#ef4444; --chip:#141414;
-      --home:#461D7C; --away:#2d2d2d;
     }
     *{box-sizing:border-box}
     html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Arial}
@@ -59,8 +38,8 @@ let board=[]; let used='scoreboard';
 
     /* Grid */
     .grid{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px}
-    @media(min-width:820px){.grid{grid-template-columns:1fr 1fr}} /* iPad+ */
-    @media(min-width:1200px){.grid{grid-template-columns:1fr 1fr}} /* desktop still 2 cols */
+    @media(min-width:820px){.grid{grid-template-columns:1fr 1fr}} /* iPad and up */
+    @media(min-width:1200px){.grid{grid-template-columns:1fr 1fr}} /* desktop still 2 columns */
 
     .card{background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:10px}
     .head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}
@@ -91,6 +70,7 @@ let board=[]; let used='scoreboard';
 
     .hint{font-size:12px;color:var(--muted)}
     .ok{color:#9cffb0}
+
     /* Picker modal */
     .picker{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:200}
     .pickbox{width:min(820px,95vw);max-height:80vh;overflow:auto;background:#0f0f0f;border:1px solid #222;border-radius:16px;padding:14px}
@@ -103,7 +83,7 @@ let board=[]; let used='scoreboard';
 <body>
   <div class="ctrl">
     <div class="row">
-      <strong>Top‑10 CFB Live Board</strong>
+      <strong>Top-10 CFB Live Board</strong>
       <span class="pill" id="status">idle</span>
       <span class="hint">Enter your CFBD key, pick season/week, press Start.</span>
     </div>
@@ -119,9 +99,18 @@ let board=[]; let used='scoreboard';
       <button class="btn" id="start">Start</button>
       <button class="btn" id="stop">Stop</button>
       <label class="pill"><input type="checkbox" id="logosToggle" checked> Show logos</label>
-      <label class="pill"><input type="checkbox" id="safeMode" checked> Free‑tier safe</label>
-      <label class="pill"><input type="checkbox" id="top25Only" checked> Top‑25 only</label>
+      <label class="pill"><input type="checkbox" id="safeMode" checked> Free-tier safe</label>
+      <label class="pill"><input type="checkbox" id="top25Only" checked> Top-25 only</label>
       <button class="btn" id="pickBtn">Pick Games</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label>Tip text <input id="tipText" placeholder="BuyMeACoffee: tigerfan" size="26"></label>
+      <label>Tip URL <input id="tipUrl" placeholder="https://your-tip-link" size="30"></label>
+      <button class="btn" id="saveTip">Set</button>
+      <label>Shout-outs (semicolon ; separated) <input id="shoutIn" size="36" placeholder="Thanks Sam ($10)!; New Member: Alex"></label>
+      <button class="btn" id="shoutBtn">Update</button>
+      <label>Sponsors (semicolon ; separated) <input id="sponsorIn" size="36" placeholder="Use code TIGER for 10% at Example.com"></label>
+      <button class="btn" id="sponsorBtn">Set</button>
     </div>
   </div>
 
@@ -142,20 +131,19 @@ let board=[]; let used='scoreboard';
         <h3 style="margin-right:auto">Select up to 10 games</h3>
         <button class="btn" id="pickClose">Close</button>
         <button class="btn" id="pickClear">Clear</button>
-        <button class="btn" id="pickTop25">Top‑25</button>
+        <button class="btn" id="pickTop25">Top-25</button>
         <button class="btn" id="pickApply">Apply</button>
       </div>
       <div id="pickList"></div>
-      <div class="hint" style="margin-top:6px">Tip: leave empty to auto Top‑10. Your selection overrides the auto list.</div>
+      <div class="hint" style="margin-top:6px">Tip: leave empty to auto Top-10. Your selection overrides the auto list.</div>
     </div>
-  </div>
   </div>
 
   <script>
   // ===== UTIL =====
   const el = id => document.getElementById(id);
   const state = { games: [], allGames: [], logos: new Map(), tipText:'', tipUrl:'', shout:[], sponsors:[], featured:new Set(), selected:new Set(), rankMap:new Map() };
-  let pollTimer=null, playsTimer=null, lastUpdate=0;
+  let pollTimer=null, playsTimer=null;
 
   function saveLocal(){ localStorage.setItem('cfbdKey', el('keyIn').value.trim()); localStorage.setItem('tipText', state.tipText||''); localStorage.setItem('tipUrl', state.tipUrl||''); }
   function loadLocal(){ const k=localStorage.getItem('cfbdKey'); if(k) el('keyIn').value=k; const tt=localStorage.getItem('tipText'); const tu=localStorage.getItem('tipUrl'); if(tt){state.tipText=tt; el('tipText').value=tt;} if(tu){state.tipUrl=tu; el('tipUrl').value=tu;} }
@@ -166,7 +154,7 @@ let board=[]; let used='scoreboard';
     const key = el('keyIn').value.trim(); if(!key) throw new Error('Missing key');
     const res = await fetch(`https://api.collegefootballdata.com${path}`, { headers:{ Authorization:`Bearer ${key}` }});
     if(!res.ok){
-      let txt=''; try{ txt=await res.text(); }catch(_){ }
+      let txt=''; try{ txt=await res.text(); }catch(_){}
       throw new Error(`CFBD ${res.status} ${res.statusText}${txt? ' — '+txt.slice(0,80):''}`);
     }
     return res.json();
@@ -211,7 +199,7 @@ let board=[]; let used='scoreboard';
       yardLine:get(g,'yardLine','yard_line','field_position')||'',
       possession:get(g,'possession','possessionTeam','pos_team')||'',
       lastPlay:get(g,'lastPlay','last_play')||'',
-      prevYL:undefined // for animation
+      prevYL:undefined
     };
   }
 
@@ -220,28 +208,26 @@ let board=[]; let used='scoreboard';
     await loadLogos();
     const year=+el('yearIn').value; const week=+el('weekIn').value; const st=el('seasonType').value; const poll=el('poll').value;
 
-    // 1) Rankings → Top‑25 names
+    // 1) Rankings → Top-25 names
     let top25=[]; try{
       const ranks=await cfbd(`/rankings?year=${year}&week=${week}&seasonType=${st}&poll=${encodeURIComponent(poll)}`);
       const pollObj=(ranks||[])[0]?.polls?.find?.(p=>p.poll===poll) || (ranks||[])[0];
       const entries=pollObj?.ranks || pollObj?.entries || [];
       top25=entries.map(r=> (r.school||r.team||r.name));
     }catch(e){ /* continue even if rankings fail */ }
+    state.rankMap=new Map(top25.map((t,i)=>[t,i+1])); const rankMap = state.rankMap;
 
-    // 2) Scoreboard for week (fallback to /games if empty)
+    // 2) Scoreboard for week (FBS), fallback to FBS games list
     let board=[]; let used='scoreboard';
-    try{ board=await cfbd(`/scoreboard?year=${year}&week=${week}&seasonType=${st}`); }
+    try{ board=await cfbd(`/scoreboard?year=${year}&week=${week}&seasonType=${st}&classification=fbs`); }
     catch(e){ board=[]; }
-
     if(!board || !board.length){
-      try{ board=await cfbd(`/games?year=${year}&week=${week}&division=fbs`); used='games'; }
+      try{ board=await cfbd(`/games?year=${year}&week=${week}&seasonType=${st}&division=fbs`); used='games'; }
       catch(e){ board=[]; }
     }
-
     if(!board || !board.length){ setStatus(`No games found for year ${year} week ${week} (${st}).`); state.games=[]; render(); return; }
 
-    // 3) Filter to Top‑25 and pick Top‑10
-    state.rankMap=new Map(top25.map((t,i)=>[t,i+1])); const rankMap = state.rankMap;
+    // 3) Normalize + choose Top-10 (or selection)
     const games=(board||[]).map(normalizeGame);
     state.allGames = games;
 
@@ -257,7 +243,7 @@ let board=[]; let used='scoreboard';
     }
 
     state.games = chosen;
-    setStatus(used==='scoreboard'? 'ready':'ready (fallback)');
+    setStatus(used==='scoreboard'? 'ready':'ready (fallback)', true);
     render();
   }
 
@@ -269,7 +255,7 @@ let board=[]; let used='scoreboard';
       const last = plays[plays.length-1];
       const g = state.games.find(x=>x.id===gameId); if(!g) return;
       const newYL = last.yardLine || last.yard || g.yardLine;
-      g.prevYL = g.yardLine; // for trail
+      g.prevYL = toPct(g.yardLine); // store numeric
       g.yardLine = newYL;
       g.down = Number(last.down)||g.down; g.distance=Number(last.distance)||g.distance; g.possession = last.offense || g.possession;
       if(typeof last.homeScore==='number') g.home.score=last.homeScore;
@@ -281,14 +267,10 @@ let board=[]; let used='scoreboard';
   function startPolling(){
     stopPolling();
     const sec = +el('interval').value;
-    // Scoreboard poll (safe)
     pollTimer = setInterval(loadTop10, sec*1000);
-
-    // Plays poll (boosted for selected games; rotate if safeMode)
     playsTimer = setInterval(async ()=>{
       const ids = Array.from(state.featured);
       const safe = el('safeMode').checked;
-      // Limit to 2 boosted games when safeMode is on
       const pick = safe ? ids.slice(0,2) : ids.slice(0,5);
       for(const id of pick){ await fetchPlays(id); }
       render(true);
@@ -297,9 +279,8 @@ let board=[]; let used='scoreboard';
   function stopPolling(){ if(pollTimer) clearInterval(pollTimer); if(playsTimer) clearInterval(playsTimer); pollTimer=null; playsTimer=null; }
 
   // ===== RENDER =====
-  function yardToPct(yl){
+  function toPct(yl){
     if(yl==null || yl==='') return 50;
-    // Accept formats like "LSU 32" or just 32. We map 0..100 across field.
     const m = String(yl).match(/(\d+)/); const n = m? Number(m[1]): Number(yl);
     if(!isFinite(n)) return 50; return Math.max(0, Math.min(100, n));
   }
@@ -314,7 +295,7 @@ let board=[]; let used='scoreboard';
     const awayLogo = logosOn? logoFor(g.away.name):'';
     const boosted = state.featured.has(g.id);
 
-    const yl = yardToPct(g.yardLine);
+    const yl = toPct(g.yardLine);
     const trail = (g.prevYL!=null)? `<div class="trail" style="left:${Math.min(g.prevYL,yl)}%; width:${Math.abs(yl-(g.prevYL||yl))}%; opacity:.85"></div>`: '';
 
     return `
@@ -346,26 +327,21 @@ let board=[]; let used='scoreboard';
   }
 
   function render(skipRebuild){
-    // Tip banner
     const banner=el('tipBanner'); banner.innerHTML = state.tipUrl? `<strong>Tip the show:</strong> <a href="${state.tipUrl}" target="_blank" rel="noopener">${state.tipText||state.tipUrl}</a>` : '';
-    // Sponsors
     el('sponsors').innerHTML = state.sponsors.map(t=>`<div class="slot">${t}</div>`).join('');
-    // Shoutouts
     const shout=el('shout'); if(state.shout.length){ shout.style.display='block'; shout.innerHTML = state.shout.map(n=>`<span>🎉 ${n}</span>`).join(''); } else { shout.style.display='none'; }
 
     const grid=el('grid');
     if(!skipRebuild){
       grid.innerHTML = state.games.map(cardHTML).join('');
-      // bind boost buttons
       grid.querySelectorAll('button[data-boost]').forEach(b=>{
         b.onclick=()=>{ const id=b.getAttribute('data-boost'); if(state.featured.has(id)) state.featured.delete(id); else state.featured.add(id); render(); };
       });
     } else {
-      // animate only
       state.games.forEach(g=>{
         const field = document.querySelector(`.field[data-id="${g.id}"]`);
         if(!field) return; const ball=field.querySelector('.ball'); const trail=field.querySelector('.trail');
-        const yl=yardToPct(g.yardLine); ball.style.left = `${yl}%`;
+        const yl=toPct(g.yardLine); ball.style.left = `${yl}%`;
         if(trail){ trail.style.left = `${Math.min(g.prevYL||yl,yl)}%`; trail.style.width = `${Math.abs(yl-(g.prevYL||yl))}%`; trail.style.opacity='.85'; setTimeout(()=>{ if(trail) trail.style.opacity='0'; }, 900); }
         const card=document.getElementById(`card-${g.id}`); if(card){ card.querySelector('.ticker').textContent = g.lastPlay||''; }
       });
@@ -406,8 +382,6 @@ let board=[]; let used='scoreboard';
   }
 
   // Init
-  loadLocal();
-  loadLocal();
   loadLocal();
   </script>
 </body>
