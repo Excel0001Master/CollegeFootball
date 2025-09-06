@@ -2,236 +2,306 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CFB Watch‑Along Overlay (GitHub Pages, WebRTC)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Top‑25 CFB Live Scoreboard • CFBD • GitHub Pages</title>
+  <!--
+    HOW THIS WORKS (GitHub‑only, no backend):
+    - Two modes via URL param: ?mode=control (your browser) and ?mode=display (OBS/browser for viewers).
+    - Control page can pull real‑time data from the CollegeFootballData (CFBD) REST API and push the
+      normalized scoreboard to Display via a WebRTC data channel (manual copy/paste pairing — no servers).
+    - Your CFBD API key is entered only on the CONTROL page and stored in localStorage; it is NOT embedded
+      in the repo. Do NOT put your key into this file.
+
+    LEGAL: This is YOUR original UI. Do not show third‑party broadcast video/audio or screenshots.
+  -->
   <style>
-    :root {
-      --bg: transparent; --ink:#fff; --accent:#8a2be2;
-      --home:#461D7C; /* LSU purple */
-      --away:#2d2d2d;
-      --glass: rgba(0,0,0,.55);
+    :root{
+      --bg:#0b0b0b; --ink:#fff; --muted:#bdbdbd; --glass:rgba(255,255,255,.06); --line:#1f1f1f;
+      --accent:#8a2be2; --good:#22c55e; --warn:#f59e0b; --bad:#ef4444;
     }
-    html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Arial;}
-    .row{display:flex;gap:12px;align-items:center}
-    .scorebar{display:flex;gap:10px;align-items:center;padding:10px 14px;background:var(--glass)}
-    .team{display:flex;gap:8px;align-items:center;padding:6px 10px;border-radius:14px}
-    .team.home{background:var(--home)} .team.away{background:var(--away)}
-    .name{font-weight:700;letter-spacing:.3px}
-    .score{font-weight:800;font-size:20px;padding-left:6px}
-    .meta{margin-left:auto;display:flex;gap:12px;font-weight:700}
-    .pill{background:#222;padding:6px 10px;border-radius:999px}
-    .wrap{display:flex;justify-content:center;align-items:center;padding:16px}
-    .field{position:relative;width:1200px;max-width:96vw;height:300px;background:#0a7a28;border:6px solid #ddd;border-radius:18px;box-shadow:0 6px 20px rgba(0,0,0,.35)}
-    .yd{position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.5)}
-    .num{position:absolute;bottom:6px;font-weight:800;font-size:12px;color:rgba(255,255,255,.9);transform:translateX(-50%)}
-    .ball{position:absolute;top:50%;transform:translate(-50%,-50%);width:22px;height:22px;background:#c76d3a;border:2px solid #5a2d14;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.45);transition:left .45s ease}
-    .pos{position:absolute;top:8px;left:8px;background:var(--accent);color:#fff;padding:4px 8px;border-radius:12px;font-weight:700}
-    .ticker{padding:10px 14px;background:var(--glass);font-weight:600}
-    .ctrl{display:none;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;padding:14px;background:#0f0f0f}
-    .ctrl input,.ctrl select,.ctrl button,.ctrl textarea,label{font-size:14px;padding:8px;border-radius:10px;border:none;color:#fff}
-    .ctrl input,.ctrl select,.ctrl textarea{background:#161616}
-    .ctrl button{background:#1e1e1e;cursor:pointer;border:1px solid #333}
-    .ctrl button:hover{background:#2a2a2a}
-    .pair{display:none;padding:12px;background:#111;border-top:1px solid #2a2a2a}
-    .pair textarea{width:100%;min-height:120px}
-    .hint{opacity:.8;font-size:13px}
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Arial}
+    a{color:var(--accent);text-decoration:none}
+    .page{max-width:1200px;margin:0 auto;padding:14px}
+    .topbar{display:flex;gap:10px;align-items:center;margin:4px 0 12px}
+    .topbar h1{font-size:18px;margin:0;font-weight:800}
+    .grow{flex:1}
+    .tip{background:var(--glass);border:1px solid var(--line);padding:6px 10px;border-radius:12px;display:flex;gap:8px;align-items:center}
+    .tip input{background:#171717;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:6px 8px;min-width:200px}
+    .btn{background:#1e1e1e;border:1px solid #2a2a2a;color:#fff;padding:8px 12px;border-radius:10px;cursor:pointer}
+    .btn:hover{background:#242424}
+    .pill{padding:4px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line)}
+
+    /* DISPLAY GRID (responsive: phone → desktop) */
+    .grid{display:grid;grid-template-columns:1fr;gap:10px}
+    @media(min-width:740px){.grid{grid-template-columns:1fr 1fr}}
+    @media(min-width:1080px){.grid{grid-template-columns:1fr 1fr 1fr}}
+    .card{background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:10px}
+    .head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}
+    .teams{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center}
+    .team{display:flex;flex-direction:column;gap:2px}
+    .name{font-weight:800;font-size:14px}
+    .score{font-weight:900;font-size:22px}
+    .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;font-weight:600;color:var(--muted)}
+    .ticker{margin-top:8px;background:#0f0f0f;border:1px dashed #2a2a2a;border-radius:10px;padding:8px;font-size:13px}
+
+    /* CONTROL PANEL */
+    .panel{margin-top:12px;background:#0f0f0f;border:1px solid #222;border-radius:14px;padding:12px}
+    .panel h2{margin:0 0 8px;font-size:16px}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .panel input,.panel select,.panel textarea{background:#171717;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:6px 8px}
+    .panel textarea{min-height:44px}
+    .hr{height:1px;background:#1d1d1d;margin:10px 0}
+
+    /* P2P */
+    .p2p{margin-top:12px;background:#0f0f0f;border:1px solid #222;border-radius:14px;padding:12px}
+    .p2p textarea{width:100%;min-height:110px;background:#171717;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:8px}
+    .hint{font-size:12px;color:var(--muted)}
     .ok{color:#9cffb0}
-    .fail{color:#ff9c9c}
-    .tiny{font-size:12px;opacity:.75}
+
+    /* Sponsor strip (optional) */
+    .sponsors{margin:12px 0 0;display:flex;gap:10px;flex-wrap:wrap}
+    .sponsors .slot{background:#101010;border:1px dashed #2a2a2a;border-radius:10px;padding:6px 10px;font-size:12px}
+
+    /* Shoutouts ticker */
+    .shout{margin-top:8px;background:#0f0f0f;border:1px solid #2a2a2a;border-radius:10px;padding:8px;font-weight:700;white-space:nowrap;overflow:hidden}
+    .shout span{display:inline-block;padding-right:24px}
   </style>
 </head>
 <body>
-  <!-- SCOREBAR -->
-  <div class="scorebar">
-    <div class="team home"><span class="name" id="homeName">LSU</span><span class="score" id="homeScore">0</span></div>
-    <div class="team away"><span class="name" id="awayName">Opponent</span><span class="score" id="awayScore">0</span></div>
-    <div class="meta">
-      <div class="pill" id="qClock">Q1 15:00</div>
-      <div class="pill" id="downDist">1st & 10</div>
-      <div class="pill" id="spot">On LSU 25</div>
-    </div>
-  </div>
-
-  <!-- FIELD -->
-  <div class="wrap">
-    <div class="field" id="field">
-      <div id="grid"></div>
-      <div class="ball" id="ball" style="left:25%"></div>
-      <div class="pos" id="pos">POS: LSU</div>
-    </div>
-  </div>
-
-  <div class="ticker" id="lastPlay">Kickoff pending</div>
-
-  <!-- CONTROL PANEL (shown in control mode) -->
-  <div class="ctrl" id="ctrl">
-    <label>Home <input id="homeNameIn" value="LSU"></label>
-    <label>Away <input id="awayNameIn" value="Opponent"></label>
-    <button onclick="setTeams()">Set Teams</button>
-
-    <label>Quarter
-      <select id="qSel"><option>1</option><option>2</option><option>3</option><option>4</option><option>OT</option></select>
-    </label>
-    <label>Clock (MM:SS) <input id="clockIn" value="15:00"></label>
-    <button onclick="setClock()">Set Q/Clock</button>
-
-    <label>Down
-      <select id="downSel"><option>1</option><option>2</option><option>3</option><option>4</option></select>
-    </label>
-    <label>Distance <input id="distIn" type="number" value="10"></label>
-    <label>Yard Line (0-100) <input id="ylIn" type="number" value="25"></label>
-    <label>Possession
-      <select id="posSel"><option value="home">home</option><option value="away">away</option></select>
-    </label>
-    <button onclick="spot()">Update Spot</button>
-
-    <label style="grid-column: span 3">Play Note <input id="noteIn" placeholder="Daniels rush left for 8 (tackle @ OPP 40)"></label>
-    <button onclick="note()">Set Note</button>
-
-    <button onclick="score('home',7,'HOME TD')">Home TD +7</button>
-    <button onclick="score('away',7,'AWAY TD')">Away TD +7</button>
-    <button onclick="score('home',3,'HOME FG')">Home FG +3</button>
-    <button onclick="score('away',3,'AWAY FG')">Away FG +3</button>
-  </div>
-
-  <!-- PAIRING (WebRTC manual signaling, no server) -->
-  <div class="pair" id="pair">
-    <div id="roleLine" class="row" style="justify-content:space-between">
-      <div>
-        <strong>Mode:</strong> <span id="modeTxt"></span>
-        <span class="tiny"> | Open this page with <code>?mode=overlay</code> in OBS Browser Source, and <code>?mode=control</code> in a normal browser.</span>
+  <div class="page">
+    <div class="topbar">
+      <h1>Top‑25 College Football Live Board</h1>
+      <div class="grow"></div>
+      <div class="tip" id="tipBox">
+        <span>Tip the show:</span>
+        <input id="tipText" placeholder="e.g., BuyMeACoffee: tigerfan"/>
+        <input id="tipUrl" placeholder="https://your-tip-link"/>
+        <button class="btn" id="saveTip">Set</button>
       </div>
-      <div class="tiny">No server required • Peer‑to‑peer over WebRTC</div>
     </div>
 
-    <div id="controlUI" style="display:none">
-      <p><strong>Step 1.</strong> Click <em>Create Offer</em>, copy the text, and paste into the Overlay’s <em>Offer</em> box (OBS → Browser Source → right‑click → Interact).</p>
-      <button id="btnMakeOffer">Create Offer</button>
-      <textarea id="offerOut" placeholder="Your offer will appear here"></textarea>
-      <p><strong>Step 2.</strong> Copy the <em>Answer</em> from OBS and paste it here, then click <em>Apply Answer</em>.</p>
-      <textarea id="answerIn" placeholder="Paste Answer from overlay here"></textarea>
-      <button id="btnApplyAnswer">Apply Answer</button>
-      <div id="statusC" class="hint">Status: <span id="statusCtxt">idle</span></div>
+    <div class="grid" id="grid"></div>
+    <div class="sponsors" id="sponsors"></div>
+    <div class="shout" id="shout" style="display:none"></div>
+
+    <!-- CONTROL UI (only visible in ?mode=control) -->
+    <div class="panel" id="control" style="display:none">
+      <h2>Control</h2>
+      <div class="row">
+        <label>CFBD API Key <input id="cfbdKey" placeholder="Paste your CFBD key" size="36"></label>
+        <label>Season <input id="yearIn" type="number" value="2025" style="width:90px"></label>
+        <label>Week <input id="weekIn" type="number" value="2" style="width:80px"></label>
+        <label>Season Type <select id="seasonType"><option value="regular">regular</option><option value="postseason">postseason</option></select></label>
+        <label>Poll <select id="poll"><option value="AP">AP</option><option value="Coaches">Coaches</option></select></label>
+        <label>Poll Every (sec) <input id="freqIn" type="number" value="10" style="width:80px"></label>
+        <button class="btn" id="start">Start CFBD</button>
+        <button class="btn" id="stop">Stop</button>
+      </div>
+      <div class="row">
+        <label>Manual Shoutouts <input id="shoutIn" placeholder="e.g., Thanks Sam ($10)!; New Member: Alex"></label>
+        <button class="btn" id="shoutBtn">Update Shouts</button>
+        <label>Affiliate/Sponsor Text <input id="sponsorIn" placeholder="e.g., Use code TIGER for 10% off at Example.com"></label>
+        <button class="btn" id="sponsorBtn">Set Sponsors</button>
+      </div>
+      <div class="hr"></div>
+      <div class="hint">Tip: Your key is stored locally in this browser only (localStorage). Don’t commit it to GitHub.</div>
     </div>
 
-    <div id="overlayUI" style="display:none">
-      <p><strong>Step A.</strong> Paste the controller’s <em>Offer</em> here, then click <em>Generate Answer</em>.</p>
-      <textarea id="offerIn" placeholder="Paste Offer from control here"></textarea>
-      <button id="btnMakeAnswer">Generate Answer</button>
-      <p><strong>Step B.</strong> Copy the generated <em>Answer</em> below back to the controller. (OBS: right‑click Browser Source → Interact → Ctrl/Cmd+C).</p>
-      <textarea id="answerOut" placeholder="Your Answer will appear here"></textarea>
-      <div id="statusO" class="hint">Status: <span id="statusOtxt">idle</span></div>
+    <!-- P2P LINKING (manual signaling) -->
+    <div class="p2p" id="p2p">
+      <div class="row" style="justify-content:space-between"><strong>Peer‑to‑Peer Link</strong><span class="hint" id="p2pStatus">idle</span></div>
+      <div id="p2pControl" style="display:none">
+        <p class="hint">Control → Display: 1) Create Offer, 2) paste into Display (OBS), 3) copy Answer back here and apply.</p>
+        <button class="btn" id="makeOffer">Create Offer</button>
+        <textarea id="offerOut" placeholder="Your Offer…"></textarea>
+        <textarea id="answerIn" placeholder="Paste Answer from display here…"></textarea>
+        <button class="btn" id="applyAnswer">Apply Answer</button>
+      </div>
+      <div id="p2pDisplay" style="display:none">
+        <p class="hint">Display (OBS): paste the controller’s Offer below → Generate Answer → copy back.</p>
+        <textarea id="offerIn" placeholder="Paste Offer from control…"></textarea>
+        <button class="btn" id="makeAnswer">Generate Answer</button>
+        <textarea id="answerOut" placeholder="Copy this Answer back to the controller…"></textarea>
+      </div>
     </div>
   </div>
 
   <script>
-    // ---------- Static field grid ----------
-    const gridEl = document.getElementById('grid');
-    for (let x=10;x<100;x+=10){
-      const yd=document.createElement('div'); yd.className='yd'; yd.style.left=x+'%'; gridEl.appendChild(yd);
-      const num=document.createElement('div'); num.className='num'; num.textContent=x; num.style.left=x+'%'; gridEl.appendChild(num);
-    }
-
-    // ---------- State & Render ----------
-    const el = id=>document.getElementById(id);
-    let state={
-      home:{name:'LSU',score:0},
-      away:{name:'Opponent',score:0},
-      quarter:1, clock:'15:00', possession:'home',
-      down:1, distance:10, yardLine:25, lastPlay:'Kickoff pending'
+    // ======== STATE ========
+    const state = {
+      tipText:'Support the show', tipUrl:'',
+      shout:[], sponsors:[],
+      games: [] // normalized array of {id, rank, status, home:{name,score}, away:{name,score}, quarter, clock, down, distance, yardLine, possession, lastPlay}
     };
-    function render(s){
-      el('homeName').textContent=s.home.name;
-      el('awayName').textContent=s.away.name;
-      el('homeScore').textContent=s.home.score;
-      el('awayScore').textContent=s.away.score;
-      el('qClock').textContent=`Q${s.quarter} ${s.clock}`;
-      const ord=['1st','2nd','3rd','4th'][s.down-1] || 'OT';
-      el('downDist').textContent=`${ord} & ${s.distance}`;
-      el('spot').textContent=`On ${(s.possession==='home'?s.home.name:s.away.name)} ${s.yardLine}`;
-      el('lastPlay').textContent=s.lastPlay||'';
-      el('pos').textContent=`POS: ${(s.possession==='home'?s.home.name:s.away.name)}`;
-      el('ball').style.left=`${Math.max(0,Math.min(100,s.yardLine))}%`;
+
+    // ======== RENDER DISPLAY ========
+    const gridEl = document.getElementById('grid');
+    function card(g){
+      const ord = ['1st','2nd','3rd','4th'][g.quarter-1] || (g.quarter===5?'OT':(g.quarter||'—'));
+      const statusClr = g.status==='Live'? 'var(--good)': g.status==='Final'? 'var(--bad)':'var(--warn)';
+      const poss = g.possession||'';
+      return `
+        <div class="card">
+          <div class="head">
+            <div class="row" style="gap:8px">
+              <span class="pill" style="border-color:${statusClr};color:${statusClr}">${g.status||'—'}</span>
+              ${g.rank?`<span class="pill">Top ${g.rank}</span>`:''}
+            </div>
+            <div class="pill" style="background:#141414">${ord} ${g.clock||''}</div>
+          </div>
+          <div class="teams">
+            <div class="team"><span class="name">${g.home.name}</span><span class="score">${g.home.score??0}</span></div>
+            <div class="pill">vs</div>
+            <div class="team" style="align-items:end;text-align:right"><span class="name">${g.away.name}</span><span class="score">${g.away.score??0}</span></div>
+          </div>
+          <div class="meta">
+            ${g.down?`<span>${['1st','2nd','3rd','4th'][g.down-1]||g.down} & ${g.distance||''}</span>`:''}
+            ${g.yardLine?`<span>• On ${g.yardLine}</span>`:''}
+            ${poss?`<span>• POS: ${poss}</span>`:''}
+          </div>
+          <div class="ticker">${g.lastPlay||''}</div>
+        </div>`
     }
-    render(state);
-
-    // ---------- Mode ----------
-    const params=new URLSearchParams(location.search);
-    const mode=params.get('mode')||'overlay';
-    el('modeTxt').textContent=mode.toUpperCase();
-    el('pair').style.display='block';
-    if(mode==='control') el('ctrl').style.display='grid';
-    if(mode==='control') el('controlUI').style.display='block'; else el('overlayUI').style.display='block';
-
-    // ---------- Control panel actions (local state + send) ----------
-    function setTeams(){ state.home.name=el('homeNameIn').value; state.away.name=el('awayNameIn').value; send(); render(state); }
-    function setClock(){ state.quarter=(el('qSel').value==='OT'?5:parseInt(el('qSel').value,10)); state.clock=el('clockIn').value; state.lastPlay=`Q${state.quarter} ${state.clock}`; send(); render(state); }
-    function spot(){ state.yardLine=+el('ylIn').value; state.down=+el('downSel').value; state.distance=+el('distIn').value; state.possession=el('posSel').value; state.lastPlay=el('noteIn').value||'Spot updated'; send(); render(state); }
-    function note(){ state.lastPlay=el('noteIn').value||state.lastPlay; send(); render(state); }
-    function score(side,pts,noteTxt){ state[side].score += pts; state.lastPlay=noteTxt; send(); render(state); }
-
-    // ---------- WebRTC (manual signaling, no server) ----------
-    let pc, dc; // peer + data channel
-    const rtcCfg={ iceServers:[{urls:'stun:stun.l.google.com:19302'}] };
-
-    function waitIceComplete(targetPc){
-      return new Promise(res=>{
-        if(targetPc.iceGatheringState==='complete') return res();
-        targetPc.addEventListener('icegatheringstatechange',()=>{
-          if(targetPc.iceGatheringState==='complete') res();
-        });
-      });
-    }
-
-    function toJSON(obj){ return JSON.stringify(obj); }
-    function fromJSON(txt){ try{ return JSON.parse(txt); }catch(e){ alert('Invalid JSON pasted.'); throw e; } }
-
-    function setStatus(id,txt,ok){ const elx=el(id); elx.textContent=txt; elx.parentElement.className='hint ' + (ok?'ok':''); }
-
-    async function controllerFlow(){
-      pc=new RTCPeerConnection(rtcCfg);
-      dc=pc.createDataChannel('plays',{ordered:true});
-      dc.onopen=()=>{ setStatus('statusCtxt','Connected',true); send(); };
-      dc.onclose=()=>setStatus('statusCtxt','Closed');
-
-      el('btnMakeOffer').onclick=async()=>{
-        const offer=await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await waitIceComplete(pc);
-        el('offerOut').value=toJSON(pc.localDescription);
-        setStatus('statusCtxt','Offer ready — paste into Overlay',true);
-      };
-
-      el('btnApplyAnswer').onclick=async()=>{
-        const ans=fromJSON(el('answerIn').value.trim());
-        await pc.setRemoteDescription(new RTCSessionDescription(ans));
-        setStatus('statusCtxt','Answer applied — connecting…');
-      };
+    function render(){
+      // Tip banner
+      const tipBox=document.getElementById('tipBox');
+      if(location.search.includes('mode=display')){
+        tipBox.innerHTML = state.tipUrl ?
+          `<span>Tip the show:</span> <a href="${state.tipUrl}" target="_blank" rel="noopener">${state.tipText||state.tipUrl}</a>` :
+          `<span>Tip the show:</span> <span class="hint">set a link from control</span>`;
+      }
+      // Sponsors
+      const sponsors=document.getElementById('sponsors');
+      sponsors.innerHTML = state.sponsors.map(t=>`<div class="slot">${t}</div>`).join('');
+      // Shoutouts ticker
+      const shout=document.getElementById('shout');
+      if(state.shout.length){ shout.style.display='block'; shout.innerHTML = state.shout.map(n=>`<span>🎉 ${n}</span>`).join(''); }
+      else shout.style.display='none';
+      // Grid
+      const sorted=[...state.games].sort((a,b)=> (a.rank||99)-(b.rank||99));
+      gridEl.innerHTML = sorted.map(card).join('');
     }
 
-    async function overlayFlow(){
-      pc=new RTCPeerConnection(rtcCfg);
-      pc.ondatachannel=(ev)=>{
-        dc=ev.channel;
-        dc.onopen=()=>setStatus('statusOtxt','Connected',true);
-        dc.onmessage=(m)=>{ try{ state=JSON.parse(m.data); render(state);}catch(e){} };
-        dc.onclose=()=>setStatus('statusOtxt','Closed');
-      };
-
-      el('btnMakeAnswer').onclick=async()=>{
-        const off=fromJSON(el('offerIn').value.trim());
-        await pc.setRemoteDescription(new RTCSessionDescription(off));
-        const ans=await pc.createAnswer();
-        await pc.setLocalDescription(ans);
-        await waitIceComplete(pc);
-        el('answerOut').value=toJSON(pc.localDescription);
-        setStatus('statusOtxt','Answer ready — copy back to Control',true);
-      };
+    // ======== CONTROL UI ========
+    const isControl = location.search.includes('mode=control');
+    if(isControl){
+      document.getElementById('control').style.display='block';
+      document.getElementById('p2pControl').style.display='block';
+      // restore key and tip text
+      const k = localStorage.getItem('cfbdKey'); if(k) document.getElementById('cfbdKey').value = k;
+      const tt = localStorage.getItem('tipText'); const tu = localStorage.getItem('tipUrl');
+      if(tt) document.getElementById('tipText').value = tt; if(tu) document.getElementById('tipUrl').value = tu;
+      document.getElementById('saveTip').onclick=()=>{ state.tipText=document.getElementById('tipText').value; state.tipUrl=document.getElementById('tipUrl').value; localStorage.setItem('tipText',state.tipText); localStorage.setItem('tipUrl',state.tipUrl); send(); render(); };
+      document.getElementById('shoutBtn').onclick=()=>{ const txt=document.getElementById('shoutIn').value||''; state.shout = txt.split(';').map(s=>s.trim()).filter(Boolean); send(); render(); };
+      document.getElementById('sponsorBtn').onclick=()=>{ const txt=document.getElementById('sponsorIn').value||''; state.sponsors = txt.split(';').map(s=>s.trim()).filter(Boolean); send(); render(); };
+    } else {
+      document.getElementById('p2pDisplay').style.display='block';
     }
 
+    // ======== CFBD INTEGRATION (CONTROL SIDE) ========
+    let pollTimer=null;
+    async function cfbdFetch(path, key){
+      const url = `https://api.collegefootballdata.com${path}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+      if(!res.ok) throw new Error('CFBD error '+res.status);
+      return res.json();
+    }
+    function storeKey(){ const key=document.getElementById('cfbdKey').value.trim(); if(key) localStorage.setItem('cfbdKey',key); return key; }
+
+    async function loadTop25Games(){
+      const key = storeKey();
+      const year = +document.getElementById('yearIn').value;
+      const week = +document.getElementById('weekIn').value;
+      const seasonType = document.getElementById('seasonType').value;
+      const poll = document.getElementById('poll').value;
+
+      // 1) Get Top‑25 teams for the week
+      // GET /rankings?year=&week=&seasonType=&poll=AP
+      let top25=[];
+      try{
+        const ranks = await cfbdFetch(`/rankings?year=${year}&week=${week}&seasonType=${seasonType}&poll=${encodeURIComponent(poll)}`, key);
+        const pollObj = (ranks||[])[0]?.polls?.find?.(p=>p.poll===poll) || (ranks||[])[0];
+        const entries = pollObj?.ranks || pollObj?.entries || [];
+        top25 = entries.slice(0,25).map(r=> (r.school||r.team||r.name) );
+      }catch(e){ console.warn('Rankings fetch failed', e); }
+
+      // 2) Get live scoreboard for the week (try /scoreboard then /live/scoreboard)
+      let board = [];
+      try{
+        board = await cfbdFetch(`/scoreboard?year=${year}&week=${week}&seasonType=${seasonType}`, key);
+      }catch(e1){
+        try{ board = await cfbdFetch(`/live/scoreboard?year=${year}&week=${week}&seasonType=${seasonType}`, key); }
+        catch(e2){ console.error('Scoreboard fetch failed', e1, e2); return; }
+      }
+      // 3) Normalize + filter to Top‑25 matchups
+      const keep = new Set(top25);
+      const games = (board||[]).filter(g=> keep.has(get(g,'homeTeam','home_team')) || keep.has(get(g,'awayTeam','away_team')) ).map(normalizeGame);
+      // 4) Enrich with rank (Top‑25 rank for home/away if available)
+      const rankMap = new Map(top25.map((t,i)=>[t,i+1]));
+      games.forEach(g=>{ const rH=rankMap.get(g.home.name); const rA=rankMap.get(g.away.name); g.rank = Math.min(rH||99, rA||99); if(!isFinite(g.rank)) g.rank=99; });
+      state.games = games; send(); render();
+    }
+
+    function normalizeGame(g){
+      const homeName = get(g,'homeTeam','home_team','home');
+      const awayName = get(g,'awayTeam','away_team','away');
+      const homeScore = num(get(g,'homeScore','home_points','home_points_total'))||0;
+      const awayScore = num(get(g,'awayScore','away_points','away_points_total'))||0;
+      const period = num(get(g,'period','quarter','current_period'))|| (get(g,'status')==='final'?4:1);
+      const clock = get(g,'clock','game_clock','display_clock')||'';
+      const statusRaw = (get(g,'status')||get(g,'gameStatus')||'').toString().toLowerCase();
+      const status = statusRaw.includes('final')? 'Final' : statusRaw.includes('in')||statusRaw.includes('live')? 'Live' : 'Scheduled';
+      const down = num(get(g,'down','current_down'))||undefined;
+      const distance = num(get(g,'distance','current_distance'))||undefined;
+      const yardLine = get(g,'yardLine','yard_line','field_position')||'';
+      const possession = get(g,'possession','possessionTeam','pos_team')||'';
+      const lastPlay = get(g,'lastPlay','last_play')||'';
+      return { id: get(g,'id','gameId','game_id')||(`${homeName}-${awayName}`), rank:99, status,
+        home:{name:homeName, score:homeScore}, away:{name:awayName, score:awayScore},
+        quarter: period, clock, down, distance, yardLine, possession, lastPlay };
+    }
+    function get(o,...keys){ for(const k of keys){ if(o && o[k]!=null) return o[k]; } return undefined; }
+    function num(v){ const n=Number(v); return isFinite(n)?n:undefined; }
+
+    // Start/Stop polling
+    if(isControl){
+      document.getElementById('start').onclick=()=>{ const key=storeKey(); if(!key){ alert('Enter your CFBD API key'); return; } const freq = Math.max(5, +document.getElementById('freqIn').value||10); if(pollTimer) clearInterval(pollTimer); loadTop25Games(); pollTimer = setInterval(loadTop25Games, freq*1000); };
+      document.getElementById('stop').onclick=()=>{ if(pollTimer) clearInterval(pollTimer); pollTimer=null; };
+    }
+
+    // ======== P2P (manual signaling, one data channel) ========
+    let pc, dc; const rtcCfg={ iceServers:[{urls:'stun:stun.l.google.com:19302'}] };
+    const statusEl = document.getElementById('p2pStatus');
+    function setStatus(txt,ok){ statusEl.textContent=txt; statusEl.className= ok? 'hint ok':'hint'; }
     function send(){ if(dc && dc.readyState==='open'){ dc.send(JSON.stringify(state)); } }
+    async function waitIceComplete(p){ return new Promise(res=>{ if(p.iceGatheringState==='complete') return res(); p.addEventListener('icegatheringstatechange',()=>{ if(p.iceGatheringState==='complete') res();});}); }
 
-    if(mode==='control') controllerFlow(); else overlayFlow();
+    if(isControl){
+      // Controller
+      const offerBtn=document.getElementById('makeOffer');
+      const offerOut=document.getElementById('offerOut');
+      const answerIn=document.getElementById('answerIn');
+      const applyBtn=document.getElementById('applyAnswer');
+      pc=new RTCPeerConnection(rtcCfg);
+      dc=pc.createDataChannel('board',{ordered:true});
+      dc.onopen=()=>{ setStatus('Connected',true); send(); };
+      dc.onclose=()=>setStatus('Closed');
+      offerBtn.onclick=async()=>{ const offer=await pc.createOffer(); await pc.setLocalDescription(offer); await waitIceComplete(pc); offerOut.value=JSON.stringify(pc.localDescription); setStatus('Offer ready — paste into display',true); };
+      applyBtn.onclick=async()=>{ const ansTxt=answerIn.value.trim(); if(!ansTxt) return; const ans=JSON.parse(ansTxt); await pc.setRemoteDescription(new RTCSessionDescription(ans)); setStatus('Answer applied — connecting…'); };
+    }else{
+      // Display
+      document.getElementById('p2pDisplay').style.display='block';
+      pc=new RTCPeerConnection(rtcCfg);
+      pc.ondatachannel=(ev)=>{ dc=ev.channel; dc.onopen=()=>setStatus('Connected',true); dc.onmessage=(m)=>{ try{ const incoming=JSON.parse(m.data); Object.assign(state,incoming); render(); }catch(e){} }; dc.onclose=()=>setStatus('Closed'); };
+      const offerIn=document.getElementById('offerIn');
+      const makeAnswer=document.getElementById('makeAnswer');
+      const answerOut=document.getElementById('answerOut');
+      makeAnswer.onclick=async()=>{ const off=JSON.parse(offerIn.value.trim()); await pc.setRemoteDescription(new RTCSessionDescription(off)); const ans=await pc.createAnswer(); await pc.setLocalDescription(ans); await waitIceComplete(pc); answerOut.value=JSON.stringify(pc.localDescription); setStatus('Answer ready — send back to control',true); };
+    }
+
+    // Initial paint
+    render();
   </script>
 </body>
 </html>
