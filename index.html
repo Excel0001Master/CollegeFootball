@@ -154,7 +154,20 @@ const nameWithRank=(name)=>{ const rk=S.rankMap.get(canonical(name)); return rk?
 const num=v=>{ const n=Number(v); return isFinite(n)?n:undefined; };
 const get=(o,...k)=>{ for(const x of k){ if(o && o[x]!=null) return o[x]; } };
 const toPct=yl=>{ if(!yl && yl!==0) return 50; const m=String(yl).match(/(\d+)/); const n=m?+m[1]:+yl; return isFinite(n)?Math.max(0,Math.min(100,n)):50; };
-const kickStr=g=>{ const dt=get(g,'startDate','start_date','start','startTime'); return dt? `Kick: ${String(dt).slice(0,16)}`:''; };
+
+/* NEW kickoff formatter → local time (e.g., "Kick: Sat 6:30 PM") */
+function kickStr(g){
+  const iso = get(g,'startDate','start_date');     // e.g., 2025-09-06T23:30:00Z
+  const time = get(g,'startTime','start_time');    // e.g., 18:30:00
+  const dateOnly = get(g,'start');
+  const fmt = d => 'Kick: ' + new Intl.DateTimeFormat(undefined, {
+    weekday: 'short', hour: 'numeric', minute: '2-digit'
+  }).format(d);
+  if (iso){ const d=new Date(iso); if(!isNaN(d)) return fmt(d); }
+  if (dateOnly && time){ const d=new Date(`${dateOnly}T${time}`); if(!isNaN(d)) return fmt(d); }
+  if (time) return `Kick: ${time}`;
+  return '';
+}
 
 function normalize(g){
   const home=get(g,'homeTeam','home_team','home'), away=get(g,'awayTeam','away_team','away');
@@ -177,7 +190,7 @@ function normalize(g){
   };
 }
 
-/* Build robust rank map for the selected poll (AP/Coaches), with team-name normalization */
+/* Build robust rank map for selected poll with team-name normalization */
 function buildRankMap(resp, pollWanted){
   const want = canonicalPoll(pollWanted);   // "ap" or "coaches"
   const map=new Map();
