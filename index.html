@@ -108,7 +108,7 @@ async function cfbd(path){
   return r.json();
 }
 
-/* name normalization for rank matching (Miami, Ole Miss, LSU, etc.) */
+/* name normalization (Miami, Ole Miss, LSU, etc.) */
 const clean = s => String(s||'').toLowerCase().replace(/[\s\.\-’'()&]/g,'').replace(/hawaii|hawaiʻi/g,'hawaii');
 function aliasPut(key, school){ if(!key) return; const k=clean(key); if(!S.alias.has(k)) S.alias.set(k, school); }
 function canonical(name){ return S.alias.get(clean(name)) || name; }
@@ -141,7 +141,7 @@ async function loadFbsAndAssets(){
       aliasPut(t.alt_name2, t.school);
       aliasPut(t.alt_name3, t.school);
     });
-    // extra common nicknames / alternates
+    // common nicknames / alternates
     [['Ole Miss','Mississippi'],['UConn','Connecticut'],['USC','Southern California'],['UCF','Central Florida'],
      ['UTSA','UT San Antonio'],['App State','Appalachian State'],['UMass','Massachusetts'],
      ['Louisiana State','LSU'],['Miami (FL)','Miami (FL)'],['Miami','Miami (FL)']
@@ -153,9 +153,8 @@ const badge=(name)=>{ const rk=S.rankMap.get(canonical(name)); return rk? `<span
 const nameWithRank=(name)=>{ const rk=S.rankMap.get(canonical(name)); return rk? `#${rk} ${name}`:name; };
 const num=v=>{ const n=Number(v); return isFinite(n)?n:undefined; };
 const get=(o,...k)=>{ for(const x of k){ if(o && o[x]!=null) return o[x]; } };
-const toPct=yl=>{ if(!yl && yl!==0) return 50; const m=String(yl).match(/(\d+)/); const n=m?+m[1]:+yl; return isFinite(n)?Math.max(0,Math.min(100,n)):50; };
 
-/* NEW kickoff formatter → local time (e.g., "Kick: Sat 6:30 PM") */
+/* kickoff (local time) */
 function kickStr(g){
   const iso = get(g,'startDate','start_date');     // e.g., 2025-09-06T23:30:00Z
   const time = get(g,'startTime','start_time');    // e.g., 18:30:00
@@ -168,6 +167,49 @@ function kickStr(g){
   if (time) return `Kick: ${time}`;
   return '';
 }
+
+/* ---------- NEW: smarter field position ---------- */
+/* Convert g.yardLine + which side into left→right percent (away=0 … home=100). */
+function fieldPct(g){
+  const s = (g.yardLine||'').toString().trim();
+  if(!s) return 50;
+
+  // Extract number; clamp to 0..100
+  const m = s.match(/(\d+)/);
+  if(!m) return 50;
+  let y = +m[1];
+  if(!isFinite(y)) return 50;
+  y = Math.max(0, Math.min(100, y));
+
+  // Remove digits/spaces to get the side label (e.g., "LSU", "OhioState")
+  const sideRaw = s.replace(/[\d\W]+/g,''); // letters only
+  const home = canonical(g.home?.name||'');
+  const away = canonical(g.away?.name||'');
+  const side = canonical(sideRaw);
+  const poss = canonical(g.possession||'');
+
+  // Some feeds already give 0..100 absolute; if there's no side and y>50, treat as absolute
+  if(!sideRaw && (y>50 || y===50)) return y;
+
+  // If we know which team's yard line it is:
+  // - Ball on HOME 32 → 100-32 = 68 (closer to home end zone on the right)
+  // - Ball on AWAY 32 → 32
+  const clamp50 = v => Math.max(0, Math.min(50, v));
+  if(side && side===home) return 100 - clamp50(y);
+  if(side && side===away) return clamp50(y);
+
+  // Fall back: if we know possession, use that side
+  if(poss && poss===home) return 100 - clamp50(y);
+  if(poss && poss===away) return clamp50(y);
+
+  // If value looks like 0..50 but side unknown, assume it's measured from the
+  // team listed textually first in the matchup (away on left).
+  if(y<=50) return y;
+
+  // Final fallback
+  return Math.max(0, Math.min(100, y));
+}
+/* ----------------------------------------------- */
 
 function normalize(g){
   const home=get(g,'homeTeam','home_team','home'), away=get(g,'awayTeam','away_team','away');
@@ -190,9 +232,9 @@ function normalize(g){
   };
 }
 
-/* Build robust rank map for selected poll with team-name normalization */
+/* ranks for chosen poll */
 function buildRankMap(resp, pollWanted){
-  const want = canonicalPoll(pollWanted);   // "ap" or "coaches"
+  const want = canonicalPoll(pollWanted);
   const map=new Map();
   for(const w of (resp||[])){
     for(const p of (w.polls||[])){
@@ -254,7 +296,7 @@ async function fetchPlays(gameId){
     if(!plays||!plays.length) return;
     const last=plays[plays.length-1];
     const g=S.games.find(x=>x.id===String(gameId)); if(!g) return;
-    g.prevYL=toPct(g.yardLine);
+    g.prevYL=fieldPct(g);                                   // use smarter pct for trail
     g.yardLine=last.yardLine||last.yard||g.yardLine;
     g.down=Number(last.down)||g.down;
     g.distance=Number(last.distance)||g.distance;
@@ -284,7 +326,7 @@ function cardHTML(g){
   let st='—'; if(sl.includes('final')) st='Final'; else if(sl.includes('in')||sl.includes('live')) st='Live'; else if(sl.includes('sched')) st='Scheduled'; else st=(g.status||'—');
   const q=g.quarter||0, ord=q? (['1st','2nd','3rd','4th'][q-1]||(q===5?'OT':q)) : '—';
   const boosted=S.featured.has(g.id);
-  const yl=toPct(g.yardLine), trail=(g.prevYL!=null)? `<div class="trail" style="left:${Math.min(g.prevYL,yl)}%;width:${Math.abs(yl-(g.prevYL||yl))}%;opacity:.85"></div>`:'';
+  const yl=fieldPct(g); const trail=(g.prevYL!=null)? `<div class="trail" style="left:${Math.min(g.prevYL,yl)}%;width:${Math.abs(yl-(g.prevYL||yl))}%;opacity:.85"></div>`:'';
   return `<div class="card" id="card-${g.id}">
     <div class="head">
       <div class="row" style="gap:8px">
@@ -321,7 +363,7 @@ function render(partial){
     S.games.forEach(g=>{
       const field=document.querySelector(`.field[data-id="${g.id}"]`); if(!field) return;
       const ball=field.querySelector('.ball'); const trail=field.querySelector('.trail');
-      const yl=toPct(g.yardLine); ball.style.left=`${yl}%`;
+      const yl=fieldPct(g); ball.style.left=`${yl}%`;
       if(trail){ trail.style.left=`${Math.min(g.prevYL||yl,yl)}%`; trail.style.width=`${Math.abs(yl-(g.prevYL||yl))}%`; trail.style.opacity='0.85'; setTimeout(()=>{ if(trail) trail.style.opacity='0'; }, 900); }
       const card=document.getElementById(`card-${g.id}`); if(card){ card.querySelector('.ticker').textContent=g.lastPlay||''; }
     });
