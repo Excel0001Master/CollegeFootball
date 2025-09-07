@@ -108,9 +108,18 @@ async function cfbd(path){
   return r.json();
 }
 
+/* name normalization for rank matching (Miami, Ole Miss, LSU, etc.) */
 const clean = s => String(s||'').toLowerCase().replace(/[\s\.\-’'()&]/g,'').replace(/hawaii|hawaiʻi/g,'hawaii');
 function aliasPut(key, school){ if(!key) return; const k=clean(key); if(!S.alias.has(k)) S.alias.set(k, school); }
 function canonical(name){ return S.alias.get(clean(name)) || name; }
+
+/* poll normalization: "AP Top 25" → ap, "Coaches Poll" → coaches */
+function canonicalPoll(x){
+  const s = String(x || '').toLowerCase();
+  if (s.includes('ap')) return 'ap';
+  if (s.includes('coach')) return 'coaches';
+  return s;
+}
 
 async function resolveWeek(){
   const year=+$('yearIn').value, st=$('seasonType').value;
@@ -126,17 +135,17 @@ async function loadFbsAndAssets(){
     teams.forEach(t=>{
       S.fbsSet.add(t.school);
       const u=(t.logos&&t.logos[0])||t.logo||''; if(u) S.logos.set(t.school,u);
-      // alias map
       aliasPut(t.school, t.school);
       aliasPut(t.abbreviation, t.school);
       aliasPut(t.alt_name1, t.school);
       aliasPut(t.alt_name2, t.school);
       aliasPut(t.alt_name3, t.school);
     });
-    // extra common nicknames
+    // extra common nicknames / alternates
     [['Ole Miss','Mississippi'],['UConn','Connecticut'],['USC','Southern California'],['UCF','Central Florida'],
      ['UTSA','UT San Antonio'],['App State','Appalachian State'],['UMass','Massachusetts'],
-     ['Texas A&M','Texas A&M'],['Miami (FL)','Miami (FL)'],['Miami','Miami (FL)']].forEach(([a,s])=>aliasPut(a,s));
+     ['Louisiana State','LSU'],['Miami (FL)','Miami (FL)'],['Miami','Miami (FL)']
+    ].forEach(([a,s])=>aliasPut(a,s));
   }
 }
 const logoFor=n=> $('logosToggle').checked && S.logos.get(n) ? `<span class="logo"><img src="${S.logos.get(n)}" alt=""></span>`:`<span class="logo">${(n||'').split(' ').map(s=>s[0]).join('').slice(0,3)}</span>`;
@@ -168,18 +177,18 @@ function normalize(g){
   };
 }
 
+/* Build robust rank map for the selected poll (AP/Coaches), with team-name normalization */
 function buildRankMap(resp, pollWanted){
+  const want = canonicalPoll(pollWanted);   // "ap" or "coaches"
   const map=new Map();
   for(const w of (resp||[])){
-    if(!Array.isArray(w.polls)) continue;
-    for(const p of w.polls){
-      if(p.poll!==pollWanted) continue;
+    for(const p of (w.polls||[])){
+      if(canonicalPoll(p.poll)!==want) continue;
       for(const r of (p.ranks||[])){
-        const school=r.school||r.team||r.name;
-        const rk=Number(r.rank);
+        const school=r.school||r.team||r.name; const rk=Number(r.rank);
         if(!school || !rk) continue;
         const canon=canonical(school);
-        if(!map.has(canon) || rk < map.get(canon)) map.set(canon, rk);
+        if(!map.has(canon) || rk<map.get(canon)) map.set(canon,rk);
       }
     }
   }
@@ -207,7 +216,7 @@ async function loadData(){
 
   if(!S.selected.length){
     const ranked=S.allGames
-      .map(g=>({g, best:Math.min(S.rankMap.get(canonical(g.home.name))||99, S.rankMap.get(canonical(g.away.name))||99)}))
+      .map(g=>({g,best:Math.min(S.rankMap.get(canonical(g.home.name))||99, S.rankMap.get(canonical(g.away.name))||99)}))
       .filter(x=>x.best<99)
       .sort((a,b)=>a.best-b.best)
       .map(x=>x.g);
@@ -217,7 +226,6 @@ async function loadData(){
     S.games=S.selected.map(id=>map.get(String(id))).filter(Boolean).slice(0,10);
   }
 
-  // auto-boost a couple of live games
   if(S.featured.size===0){
     const liveIds=S.games.filter(g=>/in|live/i.test(g.status)).map(g=>g.id);
     const cap=$('safeMode').checked?2:5; liveIds.slice(0,cap).forEach(id=>S.featured.add(id));
