@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Top-25 College Football — Live Board (CFBD)</title>
 <style>
-:root{--bg:#0b0b0b;--ink:#fff;--muted:#bfbfbf;--glass:rgba(255,255,255,.06);--line:#1d1d1d;--accent:#8a2be2;--good:#22c55e;--warn:#f59e0b;--bad:#ef4444;--chip:#141414}
+:root{--bg:#0b0b0b;--ink:#fff;--muted:#bfbfbf;--glass:rgba(255,255,255,.06);--line:#1d1d1d;--good:#22c55e;--warn:#f59e0b;--bad:#ef4444;--chip:#141414}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Arial}
 .wrap{max-width:1280px;margin:0 auto;padding:12px}
 .ctrl{position:sticky;top:0;z-index:100;background:rgba(0,0,0,.85);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:10px}
@@ -23,7 +23,7 @@
 .logo{width:22px;height:22px;border-radius:6px;background:#222;display:inline-flex;align-items:center;justify-content:center;overflow:hidden}
 .logo img{width:100%;height:100%;object-fit:contain}
 .name{font-weight:800;font-size:14px}
-.rank{font-weight:900;margin-left:4px;opacity:.95}
+.rank{font-weight:900;margin-left:6px;opacity:.95}
 .score{font-weight:900;font-size:22px;margin-left:6px}
 .vs{font-weight:700;color:#cfcfcf}
 .meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;font-weight:600;color:var(--muted)}
@@ -80,7 +80,7 @@
       </div>
       <div class="pickcols">
         <div class="picklist">
-          <div class="small">All FBS games this week (each team shows rank if Top-25)</div>
+          <div class="small">All FBS games this week (both teams show rank if Top-25)</div>
           <div id="pickLeft"></div>
         </div>
         <div class="picklist">
@@ -92,9 +92,9 @@
   </div>
 
 <script>
-/* ======= state & helpers ======= */
+/* ===== state & helpers ===== */
 const $ = id => document.getElementById(id);
-const S = { allGames:[], games:[], rankMap:new Map(), logos:new Map(), fbsSet:new Set(), selected:[], featured:new Set() };
+const S = { allGames:[], games:[], rankMap:new Map(), logos:new Map(), fbsSet:new Set(), alias:new Map(), selected:[], featured:new Set() };
 let pollTimer=null, playsTimer=null;
 
 function setStatus(t, ok){ const s=$('status'); s.textContent=t; s.className='pill'+(ok?' ok':''); }
@@ -108,6 +108,10 @@ async function cfbd(path){
   return r.json();
 }
 
+const clean = s => String(s||'').toLowerCase().replace(/[\s\.\-’'()&]/g,'').replace(/hawaii|hawaiʻi/g,'hawaii');
+function aliasPut(key, school){ if(!key) return; const k=clean(key); if(!S.alias.has(k)) S.alias.set(k, school); }
+function canonical(name){ return S.alias.get(clean(name)) || name; }
+
 async function resolveWeek(){
   const year=+$('yearIn').value, st=$('seasonType').value;
   const cal=await cfbd(`/calendar?year=${year}`);
@@ -116,18 +120,28 @@ async function resolveWeek(){
   if(slot) $('weekIn').value=slot.week;
 }
 
-async function loadFbsAndLogos(){
+async function loadFbsAndAssets(){
   if(!S.fbsSet.size || ($('logosToggle').checked && !S.logos.size)){
     const teams=await cfbd(`/teams/fbs?year=${$('yearIn').value}`);
     teams.forEach(t=>{
       S.fbsSet.add(t.school);
       const u=(t.logos&&t.logos[0])||t.logo||''; if(u) S.logos.set(t.school,u);
+      // alias map
+      aliasPut(t.school, t.school);
+      aliasPut(t.abbreviation, t.school);
+      aliasPut(t.alt_name1, t.school);
+      aliasPut(t.alt_name2, t.school);
+      aliasPut(t.alt_name3, t.school);
     });
+    // extra common nicknames
+    [['Ole Miss','Mississippi'],['UConn','Connecticut'],['USC','Southern California'],['UCF','Central Florida'],
+     ['UTSA','UT San Antonio'],['App State','Appalachian State'],['UMass','Massachusetts'],
+     ['Texas A&M','Texas A&M'],['Miami (FL)','Miami (FL)'],['Miami','Miami (FL)']].forEach(([a,s])=>aliasPut(a,s));
   }
 }
-const logoFor=n=> $('logosToggle').checked && S.logos.get(n) ? `<span class="logo"><img src="${S.logos.get(n)}" alt=""></span>`:`<span class="logo">${n.split(' ').map(s=>s[0]).join('').slice(0,3)}</span>`;
-const teamWithRank=(name)=> S.rankMap.has(name) ? `#${S.rankMap.get(name)} ${name}` : name;
-const rankBadge=(name)=> S.rankMap.has(name) ? `<span class="rank">#${S.rankMap.get(name)}</span>` : '';
+const logoFor=n=> $('logosToggle').checked && S.logos.get(n) ? `<span class="logo"><img src="${S.logos.get(n)}" alt=""></span>`:`<span class="logo">${(n||'').split(' ').map(s=>s[0]).join('').slice(0,3)}</span>`;
+const badge=(name)=>{ const rk=S.rankMap.get(canonical(name)); return rk? `<span class="rank">#${rk}</span>`:''; };
+const nameWithRank=(name)=>{ const rk=S.rankMap.get(canonical(name)); return rk? `#${rk} ${name}`:name; };
 const num=v=>{ const n=Number(v); return isFinite(n)?n:undefined; };
 const get=(o,...k)=>{ for(const x of k){ if(o && o[x]!=null) return o[x]; } };
 const toPct=yl=>{ if(!yl && yl!==0) return 50; const m=String(yl).match(/(\d+)/); const n=m?+m[1]:+yl; return isFinite(n)?Math.max(0,Math.min(100,n)):50; };
@@ -154,30 +168,28 @@ function normalize(g){
   };
 }
 
-/* Build a robust rank map: team -> rank using explicit poll.rank */
 function buildRankMap(resp, pollWanted){
-  const pairs=[];
+  const map=new Map();
   for(const w of (resp||[])){
     if(!Array.isArray(w.polls)) continue;
     for(const p of w.polls){
       if(p.poll!==pollWanted) continue;
       for(const r of (p.ranks||[])){
-        const school=r.school||r.team||r.name; const rk=Number(r.rank);
-        if(school && rk) pairs.push([school,rk]);
+        const school=r.school||r.team||r.name;
+        const rk=Number(r.rank);
+        if(!school || !rk) continue;
+        const canon=canonical(school);
+        if(!map.has(canon) || rk < map.get(canon)) map.set(canon, rk);
       }
     }
   }
-  // Keep the best (lowest) rank per team if duplicates
-  pairs.sort((a,b)=>a[1]-b[1]);
-  const map=new Map();
-  for(const [school,rk] of pairs){ if(!map.has(school)) map.set(school,rk); }
   return map;
 }
 
-/* ======= load & live ======= */
+/* ===== load & live ===== */
 async function loadData(){
   setStatus('loading…');
-  await loadFbsAndLogos();
+  await loadFbsAndAssets();
   const year=+$('yearIn').value, week=+$('weekIn').value, st=$('seasonType').value, poll=$('poll').value;
 
   try{
@@ -194,19 +206,18 @@ async function loadData(){
   S.allGames=fbsOnly.map(normalize);
 
   if(!S.selected.length){
-    // default: 10 games involving ranked teams, sorted by best (lowest) rank in the matchup
-    const rm=S.rankMap;
     const ranked=S.allGames
-      .filter(g=>rm.has(g.home.name)||rm.has(g.away.name))
-      .map(g=>({g,rank:Math.min(rm.get(g.home.name)||99, rm.get(g.away.name)||99)}))
-      .sort((a,b)=>a.rank-b.rank).map(x=>x.g);
+      .map(g=>({g, best:Math.min(S.rankMap.get(canonical(g.home.name))||99, S.rankMap.get(canonical(g.away.name))||99)}))
+      .filter(x=>x.best<99)
+      .sort((a,b)=>a.best-b.best)
+      .map(x=>x.g);
     S.games=(ranked.length? ranked:S.allGames).slice(0,10);
   }else{
     const map=new Map(S.allGames.map(g=>[g.id,g]));
     S.games=S.selected.map(id=>map.get(String(id))).filter(Boolean).slice(0,10);
   }
 
-  // auto-boost a couple of live games so ball/last-play updates without clicks
+  // auto-boost a couple of live games
   if(S.featured.size===0){
     const liveIds=S.games.filter(g=>/in|live/i.test(g.status)).map(g=>g.id);
     const cap=$('safeMode').checked?2:5; liveIds.slice(0,cap).forEach(id=>S.featured.add(id));
@@ -246,7 +257,7 @@ function startTimers(){
 }
 function stopTimers(){ if(pollTimer) clearInterval(pollTimer); if(playsTimer) clearInterval(playsTimer); pollTimer=playsTimer=null; }
 
-/* ======= render ======= */
+/* ===== render ===== */
 function cardHTML(g){
   const sl=(g.status||'').toLowerCase();
   let st='—'; if(sl.includes('final')) st='Final'; else if(sl.includes('in')||sl.includes('live')) st='Live'; else if(sl.includes('sched')) st='Scheduled'; else st=(g.status||'—');
@@ -262,9 +273,9 @@ function cardHTML(g){
       <button class="btn" data-boost="${g.id}">${boosted?'Boosted ✅':'Boost'}</button>
     </div>
     <div class="teams">
-      <div class="team">${logoFor(g.home.name)}<span class="name">${teamWithRank(g.home.name)}</span>${rankBadge(g.home.name)}<span class="score">${g.home.score}</span></div>
+      <div class="team">${logoFor(g.home.name)}<span class="name">${nameWithRank(g.home.name)}</span>${badge(g.home.name)}<span class="score">${g.home.score}</span></div>
       <div class="vs">vs</div>
-      <div class="team" style="justify-content:flex-end">${logoFor(g.away.name)}<span class="name">${teamWithRank(g.away.name)}</span>${rankBadge(g.away.name)}<span class="score">${g.away.score}</span></div>
+      <div class="team" style="justify-content:flex-end">${logoFor(g.away.name)}<span class="name">${nameWithRank(g.away.name)}</span>${badge(g.away.name)}<span class="score">${g.away.score}</span></div>
     </div>
     <div class="meta">
       ${g.down?`<span>${['1st','2nd','3rd','4th'][g.down-1]||g.down} & ${g.distance||''}</span>`:''}
@@ -296,13 +307,13 @@ function render(partial){
   }
 }
 
-/* ======= Picker (both teams show rank) ======= */
+/* ===== picker ===== */
 function openPicker(){ buildPicker(); $('picker').style.display='flex'; }
 function closePicker(){ $('picker').style.display='none'; }
 function buildPicker(){
-  const left=$('pickLeft'), right=$('pickRight'), rm=S.rankMap, chosen=new Set(S.selected.map(String));
+  const left=$('pickLeft'), right=$('pickRight'), chosen=new Set(S.selected.map(String));
   left.innerHTML = S.allGames.filter(g=>!chosen.has(g.id)).map(g=>{
-    const h = rm.get(g.home.name), a = rm.get(g.away.name);
+    const h = S.rankMap.get(canonical(g.home.name)), a = S.rankMap.get(canonical(g.away.name));
     return `<div class="pickrow" data-id="${g.id}">
       <div><strong>${h?`#${h} `:''}${g.home.name}</strong> vs <strong>${a?`#${a} `:''}${g.away.name}</strong></div>
       <button class="btn" data-add>Add</button>
@@ -311,7 +322,7 @@ function buildPicker(){
   const map=new Map(S.allGames.map(g=>[g.id,g]));
   right.innerHTML = S.selected.map((id,i)=>{
     const g=map.get(String(id)); if(!g) return '';
-    const h = rm.get(g.home.name), a = rm.get(g.away.name);
+    const h = S.rankMap.get(canonical(g.home.name)), a = S.rankMap.get(canonical(g.away.name));
     return `<div class="orderrow" data-id="${g.id}">
       <div><span class="pill">#${i+1}</span> <strong>${h?`#${h} `:''}${g.home.name}</strong> vs <strong>${a?`#${a} `:''}${g.away.name}</strong></div>
       <div class="row"><button class="btn" data-up>↑</button><button class="btn" data-down>↓</button><button class="btn" data-rem>Remove</button></div>
@@ -320,21 +331,19 @@ function buildPicker(){
 }
 $('picker').addEventListener('click',(ev)=>{
   const row = ev.target.closest('.pickrow,.orderrow');
-  const leftBtn = ev.target.closest('[data-add]');
-  const remBtn  = ev.target.closest('[data-rem]');
-  const upBtn   = ev.target.closest('[data-up]');
-  const dnBtn   = ev.target.closest('[data-down]');
-  const actBtn  = ev.target.closest('[data-action]');
-  if(actBtn){
-    const a=actBtn.dataset.action;
+  const add   = ev.target.closest('[data-add]');
+  const rem   = ev.target.closest('[data-rem]');
+  const up    = ev.target.closest('[data-up]');
+  const down  = ev.target.closest('[data-down]');
+  const act   = ev.target.closest('[data-action]');
+  if(act){
+    const a=act.dataset.action;
     if(a==='close'){ closePicker(); return; }
     if(a==='clear'){ S.selected=[]; buildPicker(); return; }
     if(a==='top25'){
-      const rm=S.rankMap;
       const ranked=S.allGames
-        .filter(g=>rm.has(g.home.name)||rm.has(g.away.name))
-        .map(g=>({g,rank:Math.min(rm.get(g.home.name)||99, rm.get(g.away.name)||99)}))
-        .sort((x,y)=>x.rank-y.rank).map(x=>x.g.id).slice(0,10);
+        .map(g=>({g,best:Math.min(S.rankMap.get(canonical(g.home.name))||99,S.rankMap.get(canonical(g.away.name))||99)}))
+        .filter(x=>x.best<99).sort((x,y)=>x.best-y.best).map(x=>x.g.id).slice(0,10);
       S.selected=ranked; buildPicker(); return;
     }
     if(a==='apply'){
@@ -343,13 +352,13 @@ $('picker').addEventListener('click',(ev)=>{
       closePicker(); render(); return;
     }
   }
-  if(leftBtn && row){ const id=row.dataset.id; if(!S.selected.includes(id) && S.selected.length<10){ S.selected.push(id); buildPicker(); } return; }
-  if(remBtn  && row){ const id=row.dataset.id; S.selected=S.selected.filter(x=>String(x)!==String(id)); buildPicker(); return; }
-  if(upBtn   && row){ const id=row.dataset.id; const i=S.selected.findIndex(x=>String(x)===String(id)); if(i>0){ [S.selected[i-1],S.selected[i]]=[S.selected[i],S.selected[i-1]]; buildPicker(); } return; }
-  if(dnBtn   && row){ const id=row.dataset.id; const i=S.selected.findIndex(x=>String(x)===String(id)); if(i>=0 && i<S.selected.length-1){ [S.selected[i+1],S.selected[i]]=[S.selected[i],S.selected[i+1]]; buildPicker(); } return; }
+  if(add && row){ const id=row.dataset.id; if(!S.selected.includes(id)&&S.selected.length<10){ S.selected.push(id); buildPicker(); } return; }
+  if(rem && row){ const id=row.dataset.id; S.selected=S.selected.filter(x=>x!==id); buildPicker(); return; }
+  if(up && row){ const id=row.dataset.id; const i=S.selected.indexOf(id); if(i>0){ [S.selected[i-1],S.selected[i]]=[S.selected[i],S.selected[i-1]]; buildPicker(); } return; }
+  if(down && row){ const id=row.dataset.id; const i=S.selected.indexOf(id); if(i>=0&&i<S.selected.length-1){ [S.selected[i+1],S.selected[i]]=[S.selected[i],S.selected[i+1]]; buildPicker(); } return; }
 });
 
-/* ======= controls ======= */
+/* ===== controls ===== */
 $('thisWeek').onclick=resolveWeek;
 $('testKey').onclick=async()=>{ try{ await cfbd('/info'); setStatus('Key OK',true);}catch(e){ setStatus('Key failed: '+e.message,false); } };
 $('start').onclick=async()=>{ try{ saveKey(); await loadData(); startTimers(); }catch(e){ setStatus(e.message,false); } };
